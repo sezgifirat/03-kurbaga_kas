@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kurbağa Kası Deney Kurulumu</title>
+    <style>
+        /* Genel Reset ve Responsive Yapı */
+        * { box-sizing: border-box; }
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            display: flex; flex-direction: column; 
+            background-color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            overflow: hidden; /* Kaydırmayı engelle */
+        }
+        
+        #app-container { 
+            flex: 1; display: flex; flex-direction: column; position: relative; 
+            max-width: 800px; margin: 0 auto; width: 100%; height: 100%;
+        }
+
+        /* Üst Bilgi / Yönerge Kutusu */
+        #instruction-container { padding: 15px; text-align: center; }
+        #instruction-box { 
+            background-color: #4da6ff; color: white; padding: 15px 20px; 
+            border-radius: 12px; font-size: 1.2rem; font-weight: bold; 
+            min-height: 80px; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        /* Ana Sahne (Kurbağa Görseli) */
+        #main-stage { 
+            flex: 1; display: flex; justify-content: center; align-items: center; 
+            position: relative; padding: 20px; cursor: pointer;
+        }
+        #frog-image { 
+            max-width: 95%; max-height: 45vh; object-fit: contain; 
+            transition: transform 0.2s ease; 
+        }
+        
+        /* Yanlış alet seçildiğinde titreme efekti */
+        .shake { animation: shake 0.3s; }
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            50% { transform: translateX(10px); }
+            75% { transform: translateX(-10px); }
+            100% { transform: translateX(0); }
+        }
+
+        /* Alt Araç Çubuğu */
+        #toolbar { 
+            height: 15vh; min-height: 100px; display: flex; 
+            justify-content: space-evenly; align-items: center; 
+            padding: 10px; background: transparent; 
+        }
+        .tool { 
+            height: 80%; max-width: 15%; object-fit: contain; cursor: pointer; 
+            transition: transform 0.2s, filter 0.2s; 
+            padding: 5px; border-radius: 8px; 
+        }
+        .tool:hover { transform: scale(1.1); }
+        .tool.selected { 
+            transform: scale(1.15); 
+            background-color: rgba(77, 166, 255, 0.2); 
+            box-shadow: 0 0 10px rgba(77, 166, 255, 0.5); 
+        }
+
+        /* SFO Logosu */
+        #logo { 
+            position: absolute; bottom: 15vh; right: 15px; 
+            height: 60px; pointer-events: none; opacity: 0.8;
+        }
+
+        /* Bitiş Ekranı (Dinamik olarak gösterilecek) */
+        #start-button {
+            display: none; background-color: #d33c2e; color: white; 
+            border: none; padding: 15px 40px; font-size: 1.3rem; 
+            border-radius: 8px; cursor: pointer; font-weight: bold; 
+            margin-top: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        #start-button:hover { background-color: #b73226; }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <div id="instruction-container">
+        <div id="instruction-box">Yükleniyor...</div>
+    </div>
+
+    <div id="main-stage" onclick="onFrogClick()">
+        <img id="frog-image" src="" alt="Kurbağa">
+        <button id="start-button" onclick="startExperiment()">DENEYE BAŞLA</button>
+    </div>
+
+    <img id="logo" src="sfo.png" alt="SFO Logo">
+
+    <div id="toolbar">
+        <img src="portegu.png" class="tool" id="portegu" onclick="selectTool('portegu')" alt="Portegü">
+        <img src="makas.png" class="tool" id="makas" onclick="selectTool('makas')" alt="Makas">
+        <img src="penset.png" class="tool" id="penset" onclick="selectTool('penset')" alt="Penset">
+        <img src="kurutmakagidi.png" class="tool" id="kurutmakagidi" onclick="selectTool('kurutmakagidi')" alt="Kurutma Kağıdı">
+        <img src="ip.png" class="tool" id="ip" onclick="selectTool('ip')" alt="İp">
+        <img src="forcetransducer.png" class="tool" id="forcetransducer" onclick="selectTool('forcetransducer')" alt="Force Transducer">
+    </div>
+</div>
+
+<script>
+    // Simülasyon Adımları ve Mantığı
+    const steps = [
+        {
+            instruction: "Kurbağanın Gastrocnemius kasını izole etmek için sağ bacağındaki deriyi soy.",
+            image: "spinalfrog.png",
+            validTools: ["penset", "portegu"]
+        },
+        {
+            instruction: "Siyatik siniri izole et.",
+            image: "bacak_soy.png",
+            validTools: ["penset", "portegu"]
+        },
+        {
+            instruction: "Kurutma kağıdını siyatik sinirin altına koy.",
+            image: "siyatikizole.png",
+            validTools: ["kurutmakagidi"]
+        },
+        {
+            instruction: "Aşil tendonunu bağla",
+            image: "siyatik.png", 
+            validTools: ["ip"]
+        },
+        {
+            instruction: "Aşil tendonunu kes",
+            image: "knot_asil.png",
+            validTools: ["makas"]
+        },
+        {
+            instruction: "Aşil tendonunu force transducer'e bağla",
+            image: "cut_asil.png",
+            validTools: ["forcetransducer"]
+        },
+        {
+            instruction: "DENEY DÜZENEĞİ HAZIRLANDI",
+            image: "final.png",
+            validTools: [] // Son aşama
+        }
+    ];
+
+    let currentStep = 0;
+    let selectedTool = null;
+
+    const instructionBox = document.getElementById('instruction-box');
+    const frogImage = document.getElementById('frog-image');
+    const toolbarTools = document.querySelectorAll('.tool');
+    const startButton = document.getElementById('start-button');
+    const toolbar = document.getElementById('toolbar');
+
+    // Başlangıç Durumunu Yükle
+    function updateUI() {
+        const stepData = steps[currentStep];
+        instructionBox.innerText = stepData.instruction;
+        frogImage.src = stepData.image;
+
+        // Son aşamaya gelindiyse butonları ve araçları ayarla
+        if (currentStep === steps.length - 1) {
+            frogImage.style.display = "none"; // Son ekranda sadece buton varsa gizle, görsel kalacaksa sil
+            startButton.style.display = "block";
+            toolbar.style.opacity = "0.3";
+            toolbar.style.pointerEvents = "none"; // Araç çubuğunu devre dışı bırak
+        }
+    }
+
+    // Alet Seçimi
+    function selectTool(toolId) {
+        if(currentStep === steps.length - 1) return; // Deney bittiyse seçim yapma
+        
+        selectedTool = toolId;
+        
+        // Seçili efekti uygula
+        toolbarTools.forEach(tool => tool.classList.remove('selected'));
+        document.getElementById(toolId).classList.add('selected');
+    }
+
+    // Kurbağaya / Ekrana Tıklama (İşlemi Uygulama)
+    function onFrogClick() {
+        if (currentStep === steps.length - 1) return;
+
+        if (!selectedTool) {
+            // Alet seçilmeden tıklanırsa
+            return; 
+        }
+
+        const stepData = steps[currentStep];
+        
+        // Seçilen alet bu aşama için doğru mu?
+        if (stepData.validTools.includes(selectedTool)) {
+            // Doğru işlem
+            currentStep++;
+            selectedTool = null;
+            toolbarTools.forEach(tool => tool.classList.remove('selected'));
+            updateUI();
+        } else {
+            // Yanlış işlem - Hata animasyonu tetikle
+            frogImage.classList.remove('shake');
+            void frogImage.offsetWidth; // Animasyonu sıfırla
+            frogImage.classList.add('shake');
+        }
+    }
+
+    // Deneye Başla Butonu
+    function startExperiment() {
+        alert("Simülasyon tamamlandı. Deney ekranına geçiş yapılıyor...");
+        // Burada bir sonraki ekrana (direct/indirect kasılma vb.) yönlendirme yapabilirsin.
+    }
+
+    // Sayfa yüklendiğinde başlat
+    window.onload = updateUI;
+</script>
+
+</body>
+</html>
