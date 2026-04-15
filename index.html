@@ -2,15 +2,14 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <!-- Derleme ortamını yenilemek için eklendi -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kurbağa Kas Simülasyonu - Fizyo Lab</title>
+    <title>Kurbağa Kas Simülasyonu - Fizyo Lab (Tam Sürüm)</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { touch-action: none; overflow: hidden; background-color: #f3f4f6; font-family: sans-serif; }
+        body { touch-action: none; overflow: hidden; background-color: #f3f4f6; font-family: sans-serif; user-select: none; }
         .head-bounce { animation: bounce 2s infinite ease-in-out; }
         @keyframes bounce {
             0%, 100% { transform: translateY(0) rotate(0deg); }
@@ -24,23 +23,46 @@
             from { top: 0; opacity: 0; }
             to { top: 30px; opacity: 1; }
         }
+
+        /* Canvas Scrollbar Styles for Part 2 */
+        input[type=range].time-scroll {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range].time-scroll::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 40px;
+            border-radius: 3px;
+            background: #4B5563;
+            cursor: pointer;
+            margin-top: -6px;
+        }
+        input[type=range].time-scroll::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #D1D5DB;
+            border-radius: 2px;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useCallback } = React;
 
-        // --- VERİ YAPILARI VE SABİTLER ---
+        // --- VERİ YAPILARI VE SABİTLER (BÖLÜM 1) ---
         const STEPS = [
-            { id: 1, image: '01frog.png', instruction: 'Kurbağanın bacağındaki deriyi soymak için önce penset ile tut (hedef 1), sonra makas ile kes (hedef 2\'den 3\'e sürükle).' },
-            { id: 2, image: '02bacak_soy.png', instruction: 'Siyatik siniri izole et. Portegü (sol üst) ve penset (sağ alt) ile kasları zıt yönde ayır.' },
+            { id: 1, image: '01frog.png', instruction: 'Kurbağanın bacağındaki deriyi soymak için önce penset ile tut, sonra makas ile kes.' },
+            { id: 2, image: '02bacak_soy.png', instruction: 'Siyatik siniri izole et. Portegü ve penset ile kasları zıt yönde ayır.' },
             { id: 3, image: '03siyatik.png', instruction: 'Araç kutusundan penseti al, kurutma kağıdına yaklaştırıp al ve siyatik sinirin altına koy.' },
             { id: 4, image: '04siyatikizole.png', instruction: 'İpi al ve Aşil tendonunu bağla.' },
             { id: 5, image: '05knot_asil.png', instruction: 'Makası al ve Aşil tendonunu kes.' },
-            { id: 6, image: '06cutandtie.png', instruction: 'Ataç aracı ile kesilmiş aşil tendonunu tut ve force transducer kancasına sürükleyip as.' },
-            { id: 7, image: '07final.png', instruction: 'Tebrikler! Deney için hazırsınız.' }
+            { id: 6, image: '06cutandtie.png', instruction: 'Ataç aracı ile kesilmiş aşil tendonunu tut ve kancaya as.' },
+            { id: 7, image: '07final.png', instruction: 'Deney düzeneği hazır. Sağ üstteki butondan kayda başlayabilirsiniz.' }
         ];
 
         const TOOLS = [
@@ -49,66 +71,71 @@
             { id: 'penset', src: 'penset.png', name: 'Penset' },
             { id: 'kagit', src: 'kurutmakagidi.png', name: 'Kurutma Kağıdı' },
             { id: 'ip', src: 'ip.png', name: 'İp' },
-            { id: 'atac', src: 'pense2.png', name: 'Ataç' } 
+            { id: 'atac', src: 'atac.png', name: 'Ataç' } 
         ];
 
-        // --- ANA BİLEŞEN ---
-        const App = () => {
-            const [screen, setScreen] = useState('menu'); 
+        // ==========================================
+        // COMPONENT: BÖLÜM 1 (HAZIRLIK AŞAMASI)
+        // ==========================================
+        const Part1 = ({ onComplete, devModeGlobal }) => {
             const [stepIndex, setStepIndex] = useState(0);
-            
-            const [devMode, setDevMode] = useState(false);
+            const [devMode, setDevMode] = useState(devModeGlobal);
             const [lastCoord, setLastCoord] = useState({ x: 0, y: 0 });
-
             const [activeTool, setActiveTool] = useState(null);
             const [toolPos, setToolPos] = useState({ x: 0, y: 0 });
             const [toolRotation, setToolRotation] = useState(0);
             
-            // Simülasyon Durum Değişkenleri
             const [attachedItem, setAttachedItem] = useState(null); 
             const [placedTools, setPlacedTools] = useState([]); 
             const [dragPath, setDragPath] = useState(null); 
             const [toastMsg, setToastMsg] = useState('');
+            
+            const [isAnimatingStep1, setIsAnimatingStep1] = useState(false);
+            const [showFinalModal, setShowFinalModal] = useState(false);
 
             const containerRef = useRef(null);
             const currentStep = STEPS[stepIndex];
 
-            // --- YARDIMCI FONKSİYONLAR ---
-            const showToast = (msg) => {
-                setToastMsg(msg);
-                setTimeout(() => setToastMsg(''), 3000);
-            };
+            useEffect(() => {
+                if (stepIndex === STEPS.length - 1) {
+                    setShowFinalModal(true);
+                    setTimeout(() => setShowFinalModal(false), 2000);
+                }
+            }, [stepIndex]);
+
+            const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 3000); };
+            const checkDistance = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
 
             const advanceStep = () => {
                 if (stepIndex < STEPS.length - 1) {
                     setStepIndex(prev => prev + 1);
-                    setPlacedTools([]);
-                    setAttachedItem(null);
-                    setDragPath(null);
-                    setActiveTool(null);
-                    showToast("Harika! Görev tamamlandı.");
+                    setPlacedTools([]); setAttachedItem(null); setDragPath(null); setActiveTool(null);
+                    if (stepIndex !== STEPS.length - 2) showToast("Harika! Görev tamamlandı.");
                 }
             };
 
-            const checkDistance = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
-
-            // --- DEV MODE HEDEF NOKTALARI ---
             const getTargets = () => {
-                if (stepIndex === 0) return [{x:50,y:70, name:'1:Penset Tut'}, {x:52,y:75, name:'2:Makas Başla'}, {x:46,y:71, name:'3:Makas Bitir'}];
+                if (stepIndex === 0) return [{x:50,y:70, name:'1:Penset'}, {x:52,y:75, name:'2:Makas Başla'}, {x:46,y:71, name:'3:Makas Bitir'}];
                 if (stepIndex === 1) return [{x:50,y:69, name:'Portegü'}, {x:55,y:72, name:'Penset'}];
                 if (stepIndex === 2) return [{x:52,y:70, name:'Kurutma Kağıdı'}];
                 if (stepIndex === 3) return [{x:74,y:67, name:'Aşil Bağla'}];
                 if (stepIndex === 4) return [{x:74,y:67, name:'Aşil Kes'}];
-                if (stepIndex === 5) return [{x:73,y:59, name:'Ataç (Başlangıç)'}, {x:60,y:30, name:'Ataç (Kanca)'}];
+                if (stepIndex === 5) return [{x:63,y:30, name:'Ataç (Başlangıç)'}, {x:59,y:14, name:'Ataç (Kanca)'}];
                 return [];
             };
 
-            // --- SÜRÜKLE BIRAK ETKİLEŞİMLERİ ---
+            const getPlacedToolTransform = (t) => {
+                let trX = -50, trY = -10;
+                if (isAnimatingStep1 && stepIndex === 1) {
+                    if (t.id === 'portegu') { trX = -60; trY = -20; }
+                    if (t.id === 'penset') { trX = -40; trY = 0; }
+                }
+                return `translate(${trX}%, ${trY}%) rotate(${t.rot}deg)`;
+            };
+
             const handlePointerDown = (e, tool) => {
                 if (devMode && tool.id !== 'atac_placed') return;
-                
-                e.preventDefault();
-                e.stopPropagation();
+                e.preventDefault(); e.stopPropagation();
                 
                 const clientX = e.clientX || (e.touches && e.touches[0].clientX);
                 const clientY = e.clientY || (e.touches && e.touches[0].clientY);
@@ -116,8 +143,8 @@
                 setActiveTool(tool);
                 setToolPos({ x: clientX, y: clientY });
 
-                // Özel rotasyon atamaları
-                if (tool.id === 'portegu' && stepIndex === 1) setToolRotation(135);
+                if (tool.id === 'penset' && stepIndex === 0) setToolRotation(160);
+                else if (tool.id === 'portegu' && stepIndex === 1) setToolRotation(135);
                 else if (tool.id === 'penset' && stepIndex === 1) setToolRotation(-30);
                 else if (tool.id === 'penset' && stepIndex === 2) setToolRotation(160);
                 else setToolRotation(0);
@@ -134,25 +161,14 @@
                     const dropX = ((clientX - rect.left) / rect.width) * 100;
                     const dropY = ((clientY - rect.top) / rect.height) * 100;
 
-                    // ADIM 1: Makas Kesme Animasyonu (Sürükleme Tespiti)
                     if (stepIndex === 0 && activeTool.id === 'makas' && placedTools.find(t => t.id === 'penset')) {
-                        if (checkDistance(dropX, dropY, 52, 75) < 8) {
-                            if (dragPath !== 'cutting') {
-                                setDragPath('cutting');
-                                showToast("Kesmeye başlandı, yukarı sürükle!");
-                            }
-                        }
-                        if (dragPath === 'cutting' && checkDistance(dropX, dropY, 46, 71) < 8) {
-                            advanceStep();
+                        if (checkDistance(dropX, dropY, 52, 75) < 15 && dragPath !== 'cutting') {
+                            setDragPath('cutting'); showToast("Kesmeye başlandı, şimdi hedefe sürükle!");
                         }
                     }
-
-                    // ADIM 3: Penset ile Kurutma Kağıdını Alma (Alet çantasından geçerken)
                     if (stepIndex === 2 && activeTool.id === 'penset' && !attachedItem) {
-                        // Eğer alet ekranın altına (araç kutusuna) yaklaşırsa
                         if (clientY > window.innerHeight - 150) {
-                            setAttachedItem('kagit');
-                            showToast("Kurutma kağıdı alındı!");
+                            setAttachedItem('kagit'); showToast("Kurutma kağıdı alındı!");
                         }
                     }
                 }
@@ -160,53 +176,47 @@
 
             const handlePointerUp = (e) => {
                 if (!activeTool || devMode) return;
-                
                 const clientX = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
                 const clientY = e.clientY || (e.changedTouches && e.changedTouches[0].clientY);
-
                 const rect = containerRef.current.getBoundingClientRect();
                 const dropX = ((clientX - rect.left) / rect.width) * 100;
                 const dropY = ((clientY - rect.top) / rect.height) * 100;
 
                 let toolId = activeTool.id;
-
-                // --- HEDEF KONTROLLERİ ---
-                const tolerance = 10;
+                const tolerance = 18;
 
                 if (stepIndex === 0) {
                     if (toolId === 'penset' && !placedTools.find(t => t.id === 'penset')) {
                         if (checkDistance(dropX, dropY, 50, 70) < tolerance) {
-                            setPlacedTools([...placedTools, { id: 'penset', src: 'penset.png', x: 50, y: 70, rot: 0 }]);
-                            showToast("Penset yerleştirildi. Şimdi makas ile kes (2'den 3'e sürükle).");
+                            setPlacedTools([...placedTools, { id: 'penset', src: 'penset.png', x: 50, y: 70, rot: 160 }]);
+                            showToast("Penset yerleştirildi. Şimdi makas ile kes.");
                         } else showToast("Penset yanlış yerde.");
+                    } else if (toolId === 'makas') {
+                        if (dragPath === 'cutting') {
+                            if (checkDistance(dropX, dropY, 46, 71) < 20) advanceStep();
+                            else { showToast("Kesme işlemini tamamlamak için sonuna kadar sürükle."); setDragPath(null); }
+                        }
                     }
                 } 
                 else if (stepIndex === 1) {
                     let newPlaced = [...placedTools];
-                    if (toolId === 'portegu' && !placedTools.find(t => t.id === 'portegu')) {
-                        if (checkDistance(dropX, dropY, 50, 69) < tolerance) {
-                            newPlaced.push({ id: 'portegu', src: 'portegu.png', x: 50, y: 69, rot: 135 });
-                            showToast("Portegü yerleştirildi.");
-                        }
+                    if (toolId === 'portegu' && !placedTools.find(t => t.id === 'portegu') && checkDistance(dropX, dropY, 50, 69) < tolerance) {
+                        newPlaced.push({ id: 'portegu', src: 'portegu.png', x: 50, y: 69, rot: 135 }); showToast("Portegü yerleştirildi.");
                     }
-                    if (toolId === 'penset' && !placedTools.find(t => t.id === 'penset')) {
-                        if (checkDistance(dropX, dropY, 55, 72) < tolerance) {
-                            newPlaced.push({ id: 'penset', src: 'penset.png', x: 55, y: 72, rot: -30 });
-                            showToast("Penset yerleştirildi.");
-                        }
+                    if (toolId === 'penset' && !placedTools.find(t => t.id === 'penset') && checkDistance(dropX, dropY, 55, 72) < tolerance) {
+                        newPlaced.push({ id: 'penset', src: 'penset.png', x: 55, y: 72, rot: -30 }); showToast("Penset yerleştirildi.");
                     }
                     setPlacedTools(newPlaced);
                     if (newPlaced.length === 2) {
-                        setTimeout(advanceStep, 600);
+                        setIsAnimatingStep1(true);
+                        setTimeout(() => { setIsAnimatingStep1(false); advanceStep(); }, 500);
                     }
                 }
                 else if (stepIndex === 2) {
                     if (toolId === 'penset' && attachedItem === 'kagit') {
                         if (checkDistance(dropX, dropY, 52, 70) < tolerance) advanceStep();
                         else showToast("Siyatik sinirin altına bırakmalısın.");
-                    } else if (toolId === 'penset') {
-                        showToast("Önce araç kutusundan kurutma kağıdını almalısın!");
-                    }
+                    } else if (toolId === 'penset') showToast("Önce araç kutusundan kurutma kağıdını almalısın!");
                 }
                 else if (stepIndex === 3) {
                     if (toolId === 'ip' && checkDistance(dropX, dropY, 74, 67) < tolerance) advanceStep();
@@ -216,17 +226,13 @@
                 }
                 else if (stepIndex === 5) {
                     if (toolId === 'atac' && !placedTools.find(t => t.id === 'atac_placed')) {
-                        if (checkDistance(dropX, dropY, 73, 59) < tolerance) {
-                            setPlacedTools([{ id: 'atac_placed', src: 'pense2.png', x: 73, y: 59, rot: 0 }]);
+                        if (checkDistance(dropX, dropY, 63, 30) < tolerance) {
+                            setPlacedTools([{ id: 'atac_placed', src: 'atac.png', x: 63, y: 30, rot: 0 }]);
                             showToast("Ataç takıldı, şimdi kancaya as!");
                         }
                     } else if (toolId === 'atac_placed') {
-                        if (checkDistance(dropX, dropY, 60, 30) < 15) {
-                            advanceStep();
-                        } else {
-                            // Başarısız olursa eski yerine dönsün
-                            setPlacedTools([{ id: 'atac_placed', src: 'pense2.png', x: 73, y: 59, rot: 0 }]);
-                        }
+                        if (checkDistance(dropX, dropY, 59, 14) < 25) advanceStep();
+                        else setPlacedTools([{ id: 'atac_placed', src: 'atac.png', x: 63, y: 30, rot: 0 }]);
                     }
                 }
 
@@ -239,17 +245,665 @@
                 const rect = e.target.getBoundingClientRect();
                 const x = e.clientX || (e.touches && e.touches[0].clientX);
                 const y = e.clientY || (e.touches && e.touches[0].clientY);
-                
-                const percentX = ((x - rect.left) / rect.width) * 100;
-                const percentY = ((y - rect.top) / rect.height) * 100;
-                
-                setLastCoord({ x: percentX.toFixed(2), y: percentY.toFixed(2) });
+                setLastCoord({ x: (((x - rect.left) / rect.width) * 100).toFixed(2), y: (((y - rect.top) / rect.height) * 100).toFixed(2) });
             };
 
-            const nextStep = () => {
-                if (stepIndex < STEPS.length - 1) advanceStep();
+            return (
+                <div className="flex flex-col h-screen w-full relative bg-white" onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
+                    <div className="bg-blue-500 text-white p-4 shadow-md z-10 flex flex-col justify-center min-h-[100px] relative">
+                        <p className="text-center font-semibold text-lg md:text-xl leading-snug pr-24">{currentStep.instruction}</p>
+                        {stepIndex === STEPS.length - 1 && !showFinalModal && (
+                            <button onClick={onComplete} className="absolute top-1/2 -translate-y-1/2 right-4 bg-red-600 text-white text-sm md:text-base font-bold py-2 px-4 rounded-lg shadow-lg active:scale-95 transition-transform z-50 animate-pulse whitespace-nowrap">
+                                🔴 Kayda Başla
+                            </button>
+                        )}
+                    </div>
+
+                    {toastMsg && <div className="absolute top-[120px] left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm font-semibold toast-enter pointer-events-none">{toastMsg}</div>}
+
+                    <div className="absolute top-[120px] right-2 z-20 flex flex-col items-end gap-2">
+                        <button onClick={() => setDevMode(!devMode)} className={`px-3 py-1 rounded text-xs font-bold shadow ${devMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                            Dev Mode: {devMode ? 'AÇIK' : 'KAPALI'}
+                        </button>
+                        {devMode && <div className="bg-black/80 text-white px-3 py-2 rounded text-sm font-mono whitespace-nowrap text-right">X: {lastCoord.x}% <br/> Y: {lastCoord.y}%</div>}
+                        {devMode && stepIndex < STEPS.length - 1 && <button onClick={advanceStep} className="bg-green-500 text-white px-3 py-1 rounded text-xs mt-2">Adım Atla</button>}
+                    </div>
+
+                    <div className="flex-1 relative w-full overflow-hidden flex justify-center items-center p-4" ref={containerRef}>
+                        <div className="relative w-full max-w-lg aspect-square">
+                            <img src={currentStep.image} alt="Kurbağa" className="w-full h-full object-contain select-none" draggable="false" onPointerDown={handleImageClick} />
+                            
+                            {devMode && getTargets().map((tgt, i) => (
+                                <div key={i} className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center opacity-70 pointer-events-none z-40" style={{ left: `${tgt.x}%`, top: `${tgt.y}%` }}>
+                                     <span className="absolute -top-5 bg-black text-white text-[10px] px-1 rounded whitespace-nowrap">{tgt.name}</span>
+                                </div>
+                            ))}
+
+                            {placedTools.map((t, i) => (
+                                <div key={i} className={`absolute w-28 h-28 ${t.id === 'atac_placed' ? 'cursor-grab touch-none z-30' : 'pointer-events-none z-10'}`}
+                                    style={{ left: `${t.x}%`, top: `${t.y}%`, transform: getPlacedToolTransform(t), transformOrigin: '50% 10%', transition: 'transform 0.5s ease-out' }}
+                                    onPointerDown={(e) => {
+                                        if (t.id === 'atac_placed') {
+                                            setActiveTool({ id: 'atac_placed', src: t.src, name: 'Ataç' });
+                                            setPlacedTools(placedTools.filter(p => p.id !== t.id)); 
+                                            handlePointerDown(e, { id: 'atac_placed', src: t.src, name: 'Ataç' });
+                                        }
+                                    }}>
+                                    <img src={t.src} alt="Placed tool" className="w-full h-full object-contain" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {stepIndex < STEPS.length - 1 && (
+                        <div className="bg-gray-100 border-t border-gray-300 p-4 h-28 flex items-center justify-around z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] relative">
+                            {TOOLS.map(tool => (
+                                <div key={tool.id} className={`w-16 h-16 flex items-center justify-center p-2 rounded-xl bg-white shadow-sm border border-gray-200 tool-draggable touch-none ${activeTool?.id === tool.id ? 'opacity-30' : ''}`} onPointerDown={(e) => handlePointerDown(e, tool)}>
+                                    <img src={tool.src} alt={tool.name} className="max-w-full max-h-full object-contain pointer-events-none" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}/>
+                                    <span style={{display: 'none'}} className="text-[10px] leading-tight font-bold text-gray-400 text-center">{tool.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {activeTool && (
+                        <div className="fixed pointer-events-none z-50 w-32 h-32 flex items-center justify-center" style={{ left: toolPos.x, top: toolPos.y, transform: `translate(-50%, -10%) rotate(${toolRotation}deg)`, transformOrigin: '50% 10%', transition: 'transform 0.1s ease-out' }}>
+                            <img src={activeTool.src} alt={activeTool.name} className="w-full h-full object-contain drop-shadow-xl" onError={(e) => { e.target.style.display='none'; }}/>
+                            {attachedItem === 'kagit' && activeTool.id === 'penset' && <img src="kurutmakagidi.png" alt="Kagıt" className="absolute top-[10%] left-[50%] w-12 h-12 object-contain drop-shadow-md transform -translate-x-1/2 -translate-y-1/2" />}
+                        </div>
+                    )}
+                    
+                    {showFinalModal && (
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl animate-bounce">
+                                <h2 className="text-4xl mb-4">🎉</h2>
+                                <h3 className="text-2xl font-bold text-gray-800 mb-2">Tebrikler!</h3>
+                                <p className="text-gray-600 mb-2">Kurbağa deney için hazırlandı.</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+
+        // ==========================================
+        // COMPONENT: BÖLÜM 2 (KAYIT AŞAMASI)
+        // ==========================================
+        const Part2 = ({ onBack, devModeGlobal }) => {
+            // --- UI States ---
+            const [devMode, setDevMode] = useState(devModeGlobal);
+            const [coord, setCoord] = useState({x:0,y:0});
+            
+            const [connection, setConnection] = useState('none'); // 'none', 'direct', 'indirect'
+            const [mode, setMode] = useState('single'); // 'single', 'multi'
+            const [isRecording, setIsRecording] = useState(false);
+            const [autoStimulating, setAutoStimulating] = useState(false);
+            const [voltage, setVoltage] = useState(0.0);
+            const [frequency, setFrequency] = useState(1);
+            
+            const [isSelecting, setIsSelecting] = useState(false);
+            const [selectionEnabled, setSelectionEnabled] = useState(false);
+
+            // Analysis Table Values
+            const [tblVolt, setTblVolt] = useState('-');
+            const [tblFreq, setTblFreq] = useState('-');
+            const [tblAmp, setTblAmp] = useState('-');
+            const [tblDur, setTblDur] = useState('-');
+
+            // --- Mutable Simulation State (avoid re-renders) ---
+            const sim = useRef({
+                timeMs: 0,
+                lastFrameTime: 0,
+                lastAutoStimTime: 0,
+                lastVisualUpdateTime: 0,
+                stimEvents: [],
+                forceData: [],
+                
+                // Configs
+                directThreshold: 2.0,
+                indirectThreshold: 0.5,
+                latentPeriod: 100,
+                twitchPeakTime: 40,
+                maxForceLimit: 30,
+                contractionVisualThreshold: 2.0, // Force needed to show "kasilma.png"
+                
+                // Graphics
+                msPerPixel: 5,
+                viewOffset: 0,
+                canvasWidth: 800,
+                
+                // Selection logic
+                selStartPixel: 0,
+                selEndPixel: 0,
+                selectionActive: false
+            }).current;
+
+            // --- Refs ---
+            const workAreaRef = useRef(null);
+            const forceCanvas = useRef(null);
+            const stimCanvas = useRef(null);
+            const overlayCanvas = useRef(null);
+            const frogImgRef = useRef(null);
+            const scrollRef = useRef(null);
+
+            // Drag and drop state for tool
+            const [activeTool, setActiveTool] = useState(null);
+            const [toolPos, setToolPos] = useState({ x: 0, y: 0 });
+
+            // Drop zones (Adjustable via DevMode if needed)
+            const dropZones = {
+                direct: { x: 75, y: 70, radius: 15 },   // Approximate Muscle area (%)
+                indirect: { x: 55, y: 80, radius: 15 }  // Approximate Sciatic Nerve area (%)
             };
 
+            // --- Math / Physiology Methods ---
+            const calcTwitchForce = (timeSinceStim, amplitude) => {
+                if (timeSinceStim < sim.latentPeriod) return 0;
+                const t = timeSinceStim - sim.latentPeriod;
+                if (t > 500) return 0;
+                const tau = sim.twitchPeakTime;
+                return amplitude * (t / tau) * Math.exp(1 - (t / tau));
+            };
+
+            const getAmplitude = (v, connType) => {
+                const thresh = connType === 'direct' ? sim.directThreshold : sim.indirectThreshold;
+                const range = connType === 'direct' ? 8.0 : 4.5;
+                if (v < thresh) return 0;
+                let factor = Math.max(0, Math.min(1, (v - thresh) / range));
+                return 10 + (20 * factor);
+            };
+
+            const calculateCurrentForce = (currentTime) => {
+                let totalForce = 0;
+                for (let i = sim.stimEvents.length - 1; i >= 0; i--) {
+                    const ev = sim.stimEvents[i];
+                    const dt = currentTime - ev.time;
+                    if (dt > 1000) break;
+                    if (dt >= 0) {
+                        const amp = getAmplitude(ev.voltage, ev.type);
+                        if (amp > 0) totalForce += calcTwitchForce(dt, amp);
+                    }
+                }
+                if (totalForce > 0) {
+                    totalForce = sim.maxForceLimit * (1 - Math.exp(-totalForce / sim.maxForceLimit));
+                    totalForce *= 1.2;
+                }
+                return totalForce;
+            };
+
+            const fireStimulus = useCallback(() => {
+                if (!isRecording) return;
+                sim.stimEvents.push({ time: sim.timeMs, voltage: voltage, type: connection });
+            }, [isRecording, voltage, connection, sim]);
+
+            // --- Animation Loop ---
+            useEffect(() => {
+                let reqId;
+                const loop = (timestamp) => {
+                    if (!isRecording) { reqId = requestAnimationFrame(loop); return; }
+
+                    const delta = timestamp - sim.lastFrameTime;
+                    sim.lastFrameTime = timestamp;
+                    sim.timeMs += Math.min(delta, 50);
+
+                    // Auto Stim
+                    if (autoStimulating) {
+                        const period = 1000 / frequency;
+                        if (sim.timeMs - sim.lastAutoStimTime >= period) {
+                            sim.stimEvents.push({ time: sim.timeMs, voltage: voltage, type: connection });
+                            sim.lastAutoStimTime = sim.timeMs;
+                        }
+                    }
+
+                    // Physics & Visual updates
+                    if (sim.timeMs - (sim.forceData.length > 0 ? sim.forceData[sim.forceData.length-1].time : 0) > 10) {
+                        const currentForce = calculateCurrentForce(sim.timeMs);
+                        sim.forceData.push({ time: sim.timeMs, force: currentForce });
+                        
+                        // Update Image Logic safely
+                        if (sim.timeMs - sim.lastVisualUpdateTime > 30) {
+                            sim.lastVisualUpdateTime = sim.timeMs;
+                            if (frogImgRef.current) {
+                                let newSrc = '07final.png';
+                                if (connection === 'direct') {
+                                    newSrc = currentForce > sim.contractionVisualThreshold ? '09direct_kasilma.png' : '08direct.png';
+                                } else if (connection === 'indirect') {
+                                    newSrc = currentForce > sim.contractionVisualThreshold ? '11indirect_kasilma.png' : '10indirect.png';
+                                }
+                                
+                                // Only mutate DOM if changed (performance!)
+                                if (!frogImgRef.current.src.includes(newSrc)) {
+                                    frogImgRef.current.src = newSrc;
+                                }
+                            }
+                        }
+                    }
+
+                    updateScrollbar();
+                    drawGraphs();
+
+                    reqId = requestAnimationFrame(loop);
+                };
+
+                reqId = requestAnimationFrame(loop);
+                return () => cancelAnimationFrame(reqId);
+            }, [isRecording, autoStimulating, frequency, voltage, connection]);
+
+            // --- Graphics Engine ---
+            const resizeCanvas = () => {
+                if (!forceCanvas.current) return;
+                const container = forceCanvas.current.parentElement;
+                sim.canvasWidth = container.clientWidth;
+                forceCanvas.current.width = sim.canvasWidth;
+                forceCanvas.current.height = 180;
+                stimCanvas.current.width = sim.canvasWidth;
+                stimCanvas.current.height = 100;
+                overlayCanvas.current.width = sim.canvasWidth;
+                overlayCanvas.current.height = 280;
+                drawGraphs();
+            };
+
+            useEffect(() => {
+                window.addEventListener('resize', resizeCanvas);
+                resizeCanvas();
+                return () => window.removeEventListener('resize', resizeCanvas);
+            }, []);
+
+            const updateScrollbar = () => {
+                if (!scrollRef.current) return;
+                const viewDuration = sim.canvasWidth * sim.msPerPixel;
+                const maxOffset = Math.max(0, sim.timeMs - viewDuration);
+                scrollRef.current.max = maxOffset;
+                if (isRecording) {
+                    sim.viewOffset = maxOffset;
+                    scrollRef.current.value = maxOffset;
+                }
+            };
+
+            const drawGraphs = () => {
+                if (!forceCanvas.current || !stimCanvas.current) return;
+                const ctxF = forceCanvas.current.getContext('2d');
+                const ctxS = stimCanvas.current.getContext('2d');
+                
+                ctxF.clearRect(0, 0, sim.canvasWidth, 180);
+                ctxS.clearRect(0, 0, sim.canvasWidth, 100);
+
+                const vOffset = isRecording ? Math.max(0, sim.timeMs - (sim.canvasWidth * sim.msPerPixel)) : sim.viewOffset;
+
+                // Force Axis/Grid
+                ctxF.beginPath(); ctxF.strokeStyle = 'rgba(0,0,0,0.05)'; ctxF.lineWidth = 1;
+                for(let i=0; i<=40; i+=10) {
+                    let y = 170 - (i/40) * 160;
+                    ctxF.moveTo(0, y); ctxF.lineTo(sim.canvasWidth, y);
+                    if(i>0) { ctxF.fillStyle = '#9ca3af'; ctxF.font = '10px Arial'; ctxF.fillText(i, 14, y+3); }
+                }
+                ctxF.stroke();
+
+                // Force Curve
+                ctxF.beginPath(); ctxF.strokeStyle = '#1d4ed8'; ctxF.lineWidth = 2; ctxF.lineJoin = 'round';
+                let firstPoint = true;
+                const startIndex = Math.max(0, sim.forceData.findIndex(d => d.time >= vOffset) - 1);
+                let endIndex = sim.forceData.findIndex(d => d.time > vOffset + sim.canvasWidth * sim.msPerPixel);
+                if (endIndex === -1) endIndex = sim.forceData.length;
+                else endIndex = Math.min(sim.forceData.length, endIndex + 1);
+
+                for (let i = startIndex; i < endIndex; i++) {
+                    const d = sim.forceData[i];
+                    const x = (d.time - vOffset) / sim.msPerPixel;
+                    const y = 170 - (Math.min(40, d.force) / 40) * 160;
+                    if (firstPoint) { ctxF.moveTo(x, y); firstPoint = false; } else ctxF.lineTo(x, y);
+                }
+                ctxF.stroke();
+
+                // Stimulus Axis
+                ctxS.strokeStyle = 'rgba(0,0,0,0.1)'; ctxS.beginPath();
+                ctxS.moveTo(0, 80); ctxS.lineTo(sim.canvasWidth, 80);
+                for(let i=5; i<=15; i+=5) {
+                    let y = 80 - (i/15) * 70;
+                    ctxS.moveTo(0, y); ctxS.lineTo(sim.canvasWidth, y);
+                    ctxS.fillStyle = '#9ca3af'; ctxS.font = '10px Arial'; ctxS.fillText(i, 14, y+3);
+                }
+                ctxS.stroke();
+
+                // Stimulus Lines
+                for (let ev of sim.stimEvents) {
+                    if (ev.time >= vOffset && ev.time <= vOffset + sim.canvasWidth * sim.msPerPixel) {
+                        const x = (ev.time - vOffset) / sim.msPerPixel;
+                        const h = (ev.voltage / 15) * 70;
+                        ctxS.beginPath(); ctxS.strokeStyle = '#ef4444'; ctxS.lineWidth = 2;
+                        ctxS.moveTo(x, 80); ctxS.lineTo(x, 80 - h); ctxS.stroke();
+                    }
+                }
+                
+                // Time markers
+                ctxS.fillStyle = '#64748b'; ctxS.font = '10px Arial'; ctxS.textAlign = 'center';
+                for(let t = Math.floor(vOffset/1000)*1000; t <= vOffset + sim.canvasWidth * sim.msPerPixel; t+=1000) {
+                    if(t < vOffset) continue;
+                    let x = (t - vOffset) / sim.msPerPixel;
+                    ctxS.fillText((t/1000).toFixed(1) + "s", x, 95);
+                    ctxS.beginPath(); ctxS.moveTo(x, 80); ctxS.lineTo(x, 85); ctxS.strokeStyle = '#64748b'; ctxS.lineWidth=1; ctxS.stroke();
+                }
+                ctxS.textAlign = 'left';
+            };
+
+            // --- Interaction Logic ---
+            const handleRecordToggle = () => {
+                if (!isRecording) {
+                    sim.lastFrameTime = performance.now();
+                    sim.selectionActive = false;
+                    setSelectionEnabled(false);
+                    setTblVolt('-'); setTblFreq('-'); setTblAmp('-'); setTblDur('-');
+                    if (overlayCanvas.current) {
+                        const ctx = overlayCanvas.current.getContext('2d');
+                        ctx.clearRect(0,0, sim.canvasWidth, 280);
+                    }
+                } else {
+                    if (autoStimulating) setAutoStimulating(false);
+                    updateScrollbar();
+                    drawGraphs();
+                }
+                setIsRecording(!isRecording);
+            };
+
+            const checkDistance = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
+
+            const handlePointerDown = (e) => {
+                if (connection !== 'none' || devMode) return;
+                e.preventDefault(); e.stopPropagation();
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                setActiveTool('stimulator');
+                setToolPos({ x: clientX, y: clientY });
+            };
+
+            const handlePointerMove = (e) => {
+                if (devMode && workAreaRef.current && e.target.tagName === 'IMG') {
+                    const rect = workAreaRef.current.getBoundingClientRect();
+                    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                    setCoord({ x: (((clientX - rect.left) / rect.width) * 100).toFixed(1), y: (((clientY - rect.top) / rect.height) * 100).toFixed(1) });
+                }
+
+                if (!activeTool) return;
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                setToolPos({ x: clientX, y: clientY });
+            };
+
+            const handlePointerUp = (e) => {
+                if (!activeTool) return;
+                const clientX = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
+                const clientY = e.clientY || (e.changedTouches && e.changedTouches[0].clientY);
+                
+                if (workAreaRef.current) {
+                    const rect = workAreaRef.current.getBoundingClientRect();
+                    const dropX = ((clientX - rect.left) / rect.width) * 100;
+                    const dropY = ((clientY - rect.top) / rect.height) * 100;
+
+                    if (checkDistance(dropX, dropY, dropZones.direct.x, dropZones.direct.y) < dropZones.direct.radius) {
+                        setConnection('direct');
+                        if(frogImgRef.current) frogImgRef.current.src = '08direct.png';
+                    } else if (checkDistance(dropX, dropY, dropZones.indirect.x, dropZones.indirect.y) < dropZones.indirect.radius) {
+                        setConnection('indirect');
+                        if(frogImgRef.current) frogImgRef.current.src = '10indirect.png';
+                    }
+                }
+                setActiveTool(null);
+            };
+
+            const handleDisconnect = () => {
+                setConnection('none');
+                if(frogImgRef.current) frogImgRef.current.src = '07final.png';
+            };
+
+            // Selection Logic
+            const drawOverlay = () => {
+                if(!overlayCanvas.current) return;
+                const ctx = overlayCanvas.current.getContext('2d');
+                ctx.clearRect(0,0, sim.canvasWidth, 280);
+                if (isSelecting || sim.selectionActive) {
+                    const x1 = Math.min(sim.selStartPixel, sim.selEndPixel);
+                    const w = Math.abs(sim.selEndPixel - sim.selStartPixel);
+                    ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+                    ctx.fillRect(x1, 0, w, 280);
+                    ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)';
+                    ctx.strokeRect(x1, 0, w, 280);
+                }
+            };
+
+            const calcSelectionStats = () => {
+                const vOffset = sim.viewOffset;
+                const xMin = Math.min(sim.selStartPixel, sim.selEndPixel);
+                const xMax = Math.max(sim.selStartPixel, sim.selEndPixel);
+                const tStart = vOffset + xMin * sim.msPerPixel;
+                const tEnd = vOffset + xMax * sim.msPerPixel;
+                const dur = tEnd - tStart;
+                
+                let maxF = 0, minF = 999, fPoints = 0;
+                for(let d of sim.forceData) {
+                    if(d.time >= tStart && d.time <= tEnd) {
+                        if(d.force > maxF) maxF = d.force;
+                        if(d.force < minF) minF = d.force;
+                        fPoints++;
+                    }
+                }
+                if(fPoints === 0) { minF=0; maxF=0; }
+                
+                let stimCount = 0, lastV = 0;
+                for(let ev of sim.stimEvents) {
+                    if(ev.time >= tStart && ev.time <= tEnd) { stimCount++; lastV = ev.voltage; }
+                }
+                
+                setTblVolt(stimCount > 0 ? `${lastV.toFixed(1)} V` : '-');
+                setTblFreq(stimCount > 1 && dur > 0 ? `${(stimCount / (dur/1000)).toFixed(1)} Hz` : (stimCount===1 ? 'Tek' : '-'));
+                setTblAmp(maxF > 0.5 ? (maxF - Math.max(0, minF)).toFixed(1) : '-');
+                setTblDur(dur.toFixed(0));
+            };
+
+            const handleOverlayDown = (e) => {
+                if (!selectionEnabled || isRecording) return;
+                const rect = overlayCanvas.current.getBoundingClientRect();
+                sim.selStartPixel = e.clientX - rect.left;
+                sim.selEndPixel = sim.selStartPixel;
+                sim.selectionActive = false;
+                setIsSelecting(true);
+            };
+            const handleOverlayMove = (e) => {
+                if (!isSelecting) return;
+                const rect = overlayCanvas.current.getBoundingClientRect();
+                sim.selEndPixel = Math.max(0, Math.min(e.clientX - rect.left, sim.canvasWidth));
+                drawOverlay();
+            };
+            const handleOverlayUp = () => {
+                if (!isSelecting) return;
+                setIsSelecting(false);
+                if (Math.abs(sim.selEndPixel - sim.selStartPixel) > 5) {
+                    sim.selectionActive = true;
+                    calcSelectionStats();
+                } else {
+                    const ctx = overlayCanvas.current.getContext('2d');
+                    ctx.clearRect(0,0, sim.canvasWidth, 280);
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-screen bg-slate-100 font-sans" onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
+                    
+                    {/* Top Graph Area */}
+                    <div className="flex-none bg-white border-b shadow-sm z-10 flex flex-col">
+                        <div className="flex items-center gap-4 p-2 bg-slate-200 border-b border-slate-300">
+                            {!isRecording ? (
+                                <button onClick={handleRecordToggle} className="w-10 h-10 bg-green-500 hover:bg-green-600 text-white rounded shadow flex items-center justify-center transition-colors" title="Kaydı Başlat">
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg>
+                                </button>
+                            ) : (
+                                <button onClick={handleRecordToggle} className="w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded shadow flex items-center justify-center transition-colors" title="Kaydı Durdur">
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M5 5h10v10H5z"/></svg>
+                                </button>
+                            )}
+                            <div className="h-6 w-px bg-slate-400 mx-2"></div>
+                            <button onClick={() => { sim.msPerPixel = Math.max(1, sim.msPerPixel - 1); if(!isRecording) { updateScrollbar(); drawGraphs(); drawOverlay(); } }} className="w-8 h-8 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded shadow-sm flex items-center justify-center text-xl font-bold">+</button>
+                            <button onClick={() => { sim.msPerPixel = Math.min(20, sim.msPerPixel + 1); if(!isRecording) { updateScrollbar(); drawGraphs(); drawOverlay(); } }} className="w-8 h-8 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded shadow-sm flex items-center justify-center text-xl font-bold">-</button>
+                            
+                            <div className="flex-1"></div>
+                            
+                            <div className="flex items-center gap-2 text-slate-600 font-semibold mr-4">
+                                <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`}></div>
+                                <span className={isRecording ? 'text-red-500' : 'text-slate-600'}>{isRecording ? 'Kaydediliyor...' : 'Hazır'}</span>
+                            </div>
+
+                            {!isRecording && (
+                                <button onClick={() => setSelectionEnabled(!selectionEnabled)} className={`px-3 py-1.5 border rounded shadow-sm flex items-center gap-1 ${selectionEnabled ? 'bg-blue-600 border-blue-700 text-white' : 'bg-blue-100 border-blue-300 text-blue-700 hover:bg-blue-200'}`}>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"/></svg>
+                                    İmleç Seçimi
+                                </button>
+                            )}
+                            
+                            {/* DevMode toggle for Part 2 */}
+                            <button onClick={() => setDevMode(!devMode)} className={`ml-4 px-2 py-1 text-xs font-bold rounded ${devMode ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-700'}`}>DevMode</button>
+                        </div>
+
+                        <div className="relative w-full h-[280px]" style={{backgroundImage: 'linear-gradient(#f0f0f0 1px, transparent 1px), linear-gradient(90deg, #f0f0f0 1px, transparent 1px)', backgroundSize: '20px 20px'}}>
+                            <div className="absolute left-0 top-0 bottom-0 w-12 bg-white/90 border-r border-slate-300 z-10 flex flex-col pointer-events-none">
+                                <div className="h-[180px] flex items-center justify-center -rotate-90 text-xs font-bold text-slate-600">Kuvvet (g)</div>
+                                <div className="h-[100px] flex items-center justify-center -rotate-90 text-xs font-bold text-slate-600">Uyarı (V)</div>
+                            </div>
+                            <canvas ref={forceCanvas} className="absolute top-0 left-0 w-full h-[180px] border-b border-gray-300"></canvas>
+                            <canvas ref={stimCanvas} className="absolute top-[180px] left-0 w-full h-[100px]"></canvas>
+                            <canvas ref={overlayCanvas} 
+                                    className={`absolute top-0 left-0 w-full h-full z-20 ${selectionEnabled && !isRecording ? 'cursor-crosshair' : 'pointer-events-none'}`}
+                                    onPointerDown={handleOverlayDown} onPointerMove={handleOverlayMove} onPointerUp={handleOverlayUp} onPointerLeave={handleOverlayUp}></canvas>
+                        </div>
+                        
+                        <div className="px-12 py-1 bg-slate-100 border-t border-slate-300">
+                            <input type="range" ref={scrollRef} min="0" max="100" defaultValue="100" disabled={isRecording} className={`time-scroll ${isRecording ? 'opacity-50' : ''}`}
+                                   onChange={(e) => { sim.viewOffset = parseFloat(e.target.value); drawGraphs(); drawOverlay(); }} />
+                        </div>
+                    </div>
+
+                    {/* Task Bar */}
+                    <div className={`flex-none text-white text-center py-1.5 text-sm font-semibold shadow-md z-20 ${connection === 'none' ? 'bg-blue-500' : connection === 'direct' ? 'bg-indigo-500' : 'bg-yellow-600'}`}>
+                        {connection === 'none' ? 'Görev: Kasa direkt veya indirekt stimulus vermek için stimülatörü kasın / sinirin üzerine sürükleyin.'
+                            : connection === 'direct' ? 'Görev: Kaydı başlatın ve voltajı artırarak direkt uyarı verin.'
+                            : 'Görev: Kaydı başlatın, voltajı artırarak eşiği bulun. Multi modda treppe/tetani gözlemleyin.'}
+                    </div>
+
+                    {/* Bottom Work Area */}
+                    <div className="flex-1 flex flex-row overflow-hidden relative">
+                        
+                        {/* Interactive Area (Image) */}
+                        <div ref={workAreaRef} className="flex-1 relative bg-white overflow-hidden flex items-end justify-end p-4">
+                            <img ref={frogImgRef} src="07final.png" alt="Deney Düzeneği" className="max-w-full max-h-full object-contain object-bottom select-none pointer-events-none" />
+                            
+                            {devMode && (
+                                <>
+                                    <div className="absolute top-4 left-4 bg-black/80 text-white p-2 text-xs font-mono rounded">
+                                        X: {coord.x}%<br/>Y: {coord.y}%
+                                    </div>
+                                    <div className="absolute rounded-full border-2 border-red-500 bg-red-500/20" 
+                                         style={{ left: `${dropZones.direct.x}%`, top: `${dropZones.direct.y}%`, width: `${dropZones.direct.radius*2}%`, height: `${dropZones.direct.radius*2}%`, transform: 'translate(-50%, -50%)' }}>
+                                         <span className="absolute -top-5 text-[10px] text-red-500 font-bold w-full text-center">DIRECT (KAS)</span>
+                                    </div>
+                                    <div className="absolute rounded-full border-2 border-blue-500 bg-blue-500/20" 
+                                         style={{ left: `${dropZones.indirect.x}%`, top: `${dropZones.indirect.y}%`, width: `${dropZones.indirect.radius*2}%`, height: `${dropZones.indirect.radius*2}%`, transform: 'translate(-50%, -50%)' }}>
+                                         <span className="absolute -top-5 text-[10px] text-blue-500 font-bold w-full text-center">INDIRECT (SİNİR)</span>
+                                    </div>
+                                </>
+                            )}
+                            
+                            {/* Floating Tool Image (when dragging) */}
+                            {activeTool && (
+                                <div className="fixed pointer-events-none z-50 w-24 h-24 flex items-center justify-center drop-shadow-xl"
+                                     style={{ left: toolPos.x, top: toolPos.y, transform: 'translate(-50%, -50%)' }}>
+                                    <img src="stimulator.png" alt="Stimulator" className="w-full h-full object-contain" onError={(e) => e.target.style.display='none'}/>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Toolbox */}
+                        <div className="w-72 bg-slate-200 border-l border-slate-300 p-4 flex flex-col z-20 shadow-lg shrink-0">
+                            <h2 className="font-bold text-slate-700 mb-4 text-center border-b border-slate-300 pb-2">Stimülatör Kontrol</h2>
+                            
+                            <div className="mb-4 bg-white p-2 rounded shadow-sm text-sm flex justify-between items-center">
+                                <div>
+                                    <span className="text-slate-500 block text-xs">Bağlantı Durumu:</span>
+                                    <span className={`font-bold ${connection === 'none' ? 'text-red-500' : connection === 'direct' ? 'text-blue-600' : 'text-yellow-600'}`}>
+                                        {connection === 'none' ? 'Bağlı Değil' : connection === 'direct' ? 'Direkt (Kas)' : 'İndirekt (Sinir)'}
+                                    </span>
+                                </div>
+                                {connection !== 'none' && (
+                                    <button onClick={handleDisconnect} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 border border-red-300">Kes</button>
+                                )}
+                            </div>
+
+                            {/* Stimulator Tool in Toolbox */}
+                            {connection === 'none' && (
+                                <div className="mb-4 bg-white p-4 rounded shadow-sm flex flex-col items-center border border-dashed border-slate-400">
+                                    <span className="text-xs text-slate-500 mb-2 font-semibold">Sürükleyip Bırakın</span>
+                                    <div className="w-20 h-20 cursor-grab active:cursor-grabbing hover:scale-105 transition-transform" onPointerDown={handlePointerDown}>
+                                        <img src="stimulator.png" alt="Tool" className="w-full h-full object-contain pointer-events-none" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}/>
+                                        <div style={{display:'none'}} className="w-full h-full bg-blue-500 text-white rounded items-center justify-center text-xs font-bold text-center">Stimülatör<br/>(Resim Yok)</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex bg-slate-300 rounded p-1 mb-4">
+                                <button onClick={() => { setMode('single'); if(autoStimulating) setAutoStimulating(false); }} className={`flex-1 rounded py-1 text-sm font-semibold transition-all ${mode === 'single' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Single</button>
+                                <button onClick={() => setMode('multi')} className={`flex-1 rounded py-1 text-sm font-semibold transition-all ${mode === 'multi' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Multi</button>
+                            </div>
+
+                            <div className="bg-white p-3 rounded shadow-sm mb-4">
+                                <label className="text-xs font-bold text-slate-500 uppercase">Voltaj (V)</label>
+                                <div className="flex items-center mt-1">
+                                    <button onClick={() => setVoltage(v => Math.max(0, v - 0.5))} className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-l border border-slate-300 font-bold">-</button>
+                                    <input type="number" value={voltage.toFixed(1)} readOnly className="w-full h-8 border-y border-slate-300 text-center font-mono font-bold focus:outline-none" />
+                                    <button onClick={() => setVoltage(v => Math.min(15, v + 0.5))} className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-r border border-slate-300 font-bold">+</button>
+                                </div>
+                            </div>
+
+                            <div className={`bg-white p-3 rounded shadow-sm mb-4 transition-opacity ${mode === 'single' ? 'opacity-50 pointer-events-none' : ''}`}>
+                                <label className="text-xs font-bold text-slate-500 uppercase">Frekans (Hz)</label>
+                                <div className="flex items-center mt-1">
+                                    <button onClick={() => setFrequency(f => Math.max(1, f - 1))} className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-l border border-slate-300 font-bold">-</button>
+                                    <input type="number" value={frequency} readOnly className="w-full h-8 border-y border-slate-300 text-center font-mono font-bold focus:outline-none" />
+                                    <button onClick={() => setFrequency(f => Math.min(50, f + 1))} className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-r border border-slate-300 font-bold">+</button>
+                                </div>
+                            </div>
+
+                            <button onClick={() => {
+                                if(!isRecording) { alert("Lütfen önce kaydı başlatın."); return; }
+                                if(mode === 'single') fireStimulus();
+                                else setAutoStimulating(!autoStimulating);
+                            }} 
+                            disabled={connection === 'none'}
+                            className={`w-full py-4 font-bold rounded shadow-md flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 disabled:active:scale-100 mb-6 ${autoStimulating ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                                <svg className="w-6 h-6 text-yellow-300" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.381z" clipRule="evenodd"/></svg>
+                                <span>{mode === 'single' ? 'TEK UYARI VER' : autoStimulating ? 'MULTİ DURDUR' : 'MULTİ UYARI BAŞLAT'}</span>
+                            </button>
+
+                            <div className="mt-auto bg-white rounded shadow-sm border border-slate-300 overflow-hidden text-sm">
+                                <div className="bg-slate-700 text-white px-2 py-1 text-xs font-bold text-center">ÖLÇÜM TABLOSU</div>
+                                <div className="grid grid-cols-2 divide-x divide-y border-slate-200">
+                                    <div className="p-2 font-semibold text-slate-600">Volt</div><div className="p-2 text-right font-mono">{tblVolt}</div>
+                                    <div className="p-2 font-semibold text-slate-600">Frekans</div><div className="p-2 text-right font-mono">{tblFreq}</div>
+                                    <div className="p-2 font-semibold text-slate-600">Genlik (g)</div><div className="p-2 text-right font-mono font-bold text-blue-600">{tblAmp}</div>
+                                    <div className="p-2 font-semibold text-slate-600">Süre (ms)</div><div className="p-2 text-right font-mono">{tblDur}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // ==========================================
+        // ANA UYGULAMA (APP) BİLEŞENİ
+        // ==========================================
+        const App = () => {
+            const [screen, setScreen] = useState('menu'); 
+            const [devModeGlobal] = useState(false); // Global dev mod ayarı
 
             if (screen === 'menu') {
                 return (
@@ -257,7 +911,8 @@
                         <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md text-center border-t-4 border-blue-500 mb-8">
                             <div className="relative w-32 h-32 mx-auto mb-4">
                                 <div className="w-full h-full bg-blue-200 rounded-full flex items-center justify-center head-bounce shadow-inner overflow-hidden border-4 border-white">
-                                   <span className="text-4xl">👨‍🏫</span>
+                                   <img src="sezgihoca.png" alt="Sezgi Hoca" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}/>
+                                   <span style={{display: 'none'}} className="text-4xl">👨‍🏫</span>
                                 </div>
                             </div>
                             <h1 className="text-2xl font-bold text-gray-800 mb-2">Sezgi Hoca ile Fizyo Lab'a Hoşgeldiniz</h1>
@@ -275,7 +930,7 @@
                                 ▶️ Deneyi Hazırla
                             </button>
                             <button onClick={() => setScreen('part2')} 
-                                    className="bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-xl shadow-sm active:scale-95 transition-transform text-sm mt-4">
+                                    className="bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-xl shadow-sm active:scale-95 transition-transform text-sm mt-4 hover:bg-gray-300">
                                 Doğrudan kurbağa kasından kayıt al (Bölüm 2'ye atla)
                             </button>
                         </div>
@@ -283,157 +938,15 @@
                 );
             }
 
-            if (screen === 'part2') {
-                return (
-                    <div className="flex flex-col items-center justify-center h-screen bg-gray-100 p-4 text-center">
-                        <h2 className="text-2xl font-bold mb-4">Bölüm 2: Deney Kaydı</h2>
-                        <p className="mb-4">Bu bölüm 2. aşamada kodlanacaktır.</p>
-                        <button onClick={() => setScreen('menu')} className="bg-blue-500 text-white px-4 py-2 rounded">Geri Dön</button>
-                    </div>
-                );
+            if (screen === 'sim') {
+                return <Part1 onComplete={() => setScreen('part2')} devModeGlobal={devModeGlobal} />;
             }
 
-            return (
-                <div 
-                    className="flex flex-col h-screen w-full relative bg-white"
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerLeave={handlePointerUp}
-                >
-                    {/* ÜST BİLGİ/GÖREV ŞERİDİ */}
-                    <div className="bg-blue-500 text-white p-4 shadow-md z-10 flex flex-col justify-center min-h-[100px] relative">
-                        <p className="text-center font-semibold text-lg md:text-xl leading-snug">
-                            {currentStep.instruction}
-                        </p>
-                    </div>
+            if (screen === 'part2') {
+                return <Part2 onBack={() => setScreen('menu')} devModeGlobal={devModeGlobal} />;
+            }
 
-                    {/* TOAST MESAJI */}
-                    {toastMsg && (
-                        <div className="absolute top-[120px] left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm font-semibold toast-enter pointer-events-none">
-                            {toastMsg}
-                        </div>
-                    )}
-
-                    {/* DEV MODE ARAÇLARI */}
-                    <div className="absolute top-[120px] right-2 z-20 flex flex-col items-end gap-2">
-                        <button onClick={() => setDevMode(!devMode)} 
-                                className={`px-3 py-1 rounded text-xs font-bold shadow ${devMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
-                            Dev Mode: {devMode ? 'AÇIK' : 'KAPALI'}
-                        </button>
-                        {devMode && (
-                            <div className="bg-black/80 text-white px-3 py-2 rounded text-sm font-mono whitespace-nowrap text-right">
-                                X: {lastCoord.x}% <br/> Y: {lastCoord.y}%
-                            </div>
-                        )}
-                        {devMode && stepIndex < STEPS.length - 1 && (
-                            <button onClick={nextStep} className="bg-green-500 text-white px-3 py-1 rounded text-xs mt-2">
-                                Adım Atla (Test)
-                            </button>
-                        )}
-                    </div>
-
-                    {/* ANA SİMÜLASYON ALANI (KURBAĞA) */}
-                    <div className="flex-1 relative w-full overflow-hidden flex justify-center items-center p-4" ref={containerRef}>
-                        <div className="relative w-full max-w-lg aspect-square">
-                            <img 
-                                src={currentStep.image} 
-                                alt="Kurbağa" 
-                                className="w-full h-full object-contain select-none"
-                                draggable="false"
-                                onPointerDown={handleImageClick}
-                            />
-                            
-                            {/* Dev Mode Hedef Göstergeleri */}
-                            {devMode && getTargets().map((tgt, i) => (
-                                <div key={i} className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center opacity-70 pointer-events-none"
-                                     style={{ left: `${tgt.x}%`, top: `${tgt.y}%` }}>
-                                     <span className="absolute -top-5 bg-black text-white text-[10px] px-1 rounded whitespace-nowrap">{tgt.name}</span>
-                                </div>
-                            ))}
-
-                            {/* Yerleştirilmiş Araçlar (Sabitlenenler) */}
-                            {placedTools.map((t, i) => (
-                                <div 
-                                    key={i}
-                                    className={`absolute w-16 h-16 ${t.id === 'atac_placed' ? 'cursor-grab touch-none z-30' : 'pointer-events-none z-10'}`}
-                                    style={{ 
-                                        left: `${t.x}%`, 
-                                        top: `${t.y}%`, 
-                                        transform: `translate(-50%, -50%) rotate(${t.rot}deg)` 
-                                    }}
-                                    onPointerDown={(e) => {
-                                        if (t.id === 'atac_placed') {
-                                            setActiveTool({ id: 'atac_placed', src: t.src, name: 'Ataç' });
-                                            setPlacedTools(placedTools.filter(p => p.id !== t.id)); // Drag için kaldır
-                                            handlePointerDown(e, { id: 'atac_placed', src: t.src, name: 'Ataç' });
-                                        }
-                                    }}
-                                >
-                                    <img src={t.src} alt="Placed tool" className="w-full h-full object-contain" />
-                                </div>
-                            ))}
-                        </div>
-                        
-                        <div className="absolute bottom-4 left-4 w-12 h-12 opacity-80 pointer-events-none">
-                            <img src="sfo.png" alt="SFO Logo" className="w-full h-full object-contain" onError={(e) => e.target.style.display='none'} />
-                        </div>
-                    </div>
-
-                    {/* ALET ÇANTASI (ALT PANEL) */}
-                    {stepIndex < STEPS.length - 1 && (
-                        <div className="bg-gray-100 border-t border-gray-300 p-4 h-28 flex items-center justify-around z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] relative">
-                            {TOOLS.map(tool => (
-                                <div 
-                                    key={tool.id}
-                                    className={`w-16 h-16 flex items-center justify-center p-2 rounded-xl bg-white shadow-sm border border-gray-200 tool-draggable touch-none
-                                        ${activeTool?.id === tool.id ? 'opacity-30' : ''}`}
-                                    onPointerDown={(e) => handlePointerDown(e, tool)}
-                                >
-                                    <img src={tool.src} alt={tool.name} className="max-w-full max-h-full object-contain pointer-events-none" 
-                                         onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}/>
-                                    <span style={{display: 'none'}} className="text-[10px] leading-tight font-bold text-gray-400 text-center">{tool.name}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* SÜRÜKLENEN AKTİF ALET */}
-                    {activeTool && (
-                        <div 
-                            className="fixed pointer-events-none z-50 w-24 h-24 flex items-center justify-center"
-                            style={{
-                                left: toolPos.x,
-                                top: toolPos.y,
-                                transform: `translate(-50%, -50%) rotate(${toolRotation}deg)`,
-                                transition: 'transform 0.1s ease-out'
-                            }}
-                        >
-                            <img src={activeTool.src} alt={activeTool.name} className="w-full h-full object-contain drop-shadow-xl" 
-                                 onError={(e) => { e.target.style.display='none'; }}/>
-                            
-                            {/* Birleşik Alet Gösterimi (Pensetin ucunda kağıt varsa) */}
-                            {attachedItem === 'kagit' && activeTool.id === 'penset' && (
-                                <img src="kurutmakagidi.png" alt="Kagıt" className="absolute top-[80%] left-[80%] w-10 h-10 object-contain drop-shadow-md transform -translate-x-1/2 -translate-y-1/2" />
-                            )}
-                        </div>
-                    )}
-                    
-                    {/* FİNAL TEBRİKLER MODALI */}
-                    {stepIndex === STEPS.length - 1 && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl animate-bounce">
-                                <h2 className="text-3xl mb-4">🎉</h2>
-                                <h3 className="text-xl font-bold text-gray-800 mb-2">Tebrikler!</h3>
-                                <p className="text-gray-600 mb-6">Kurbağa deney için hazırlandı.</p>
-                                <button onClick={() => setScreen('part2')} 
-                                        className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl w-full shadow-md active:scale-95 transition-transform">
-                                    Kayda Başla
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
