@@ -391,9 +391,9 @@
             const [activeTool, setActiveTool] = useState(null);
             const [toolPos, setToolPos] = useState({ x: 0, y: 0 });
 
-            // Drop zones (Reverted to original)
+            // Drop zones (Direct area shrunk by 50% and aligned to left-top)
             const dropZones = {
-                direct: { x: 75, y: 70, radius: 15 },
+                direct: { x: 67.5, y: 62.5, radius: 7.5 },
                 indirect: { x: 55, y: 80, radius: 15 }  
             };
 
@@ -492,12 +492,13 @@
                 if (!forceCanvas.current) return;
                 const container = forceCanvas.current.parentElement;
                 sim.canvasWidth = container.clientWidth;
+                // Grafikleri %20 daralttık
                 forceCanvas.current.width = sim.canvasWidth;
-                forceCanvas.current.height = 180;
+                forceCanvas.current.height = 140;
                 stimCanvas.current.width = sim.canvasWidth;
-                stimCanvas.current.height = 100;
+                stimCanvas.current.height = 80;
                 overlayCanvas.current.width = sim.canvasWidth;
-                overlayCanvas.current.height = 280;
+                overlayCanvas.current.height = 220;
                 drawGraphs();
                 if(sim.selectionActive) drawOverlay();
             };
@@ -519,20 +520,30 @@
                 }
             };
 
+            const clearSelection = () => {
+                sim.selectionActive = false;
+                setIsSelecting(false);
+                setTblDur('-'); setTblFreq('-');
+                sim.selVoltVal = '-'; sim.selAmpVal = '-';
+                if (overlayCanvas.current) {
+                    overlayCanvas.current.getContext('2d').clearRect(0,0, sim.canvasWidth, 220);
+                }
+            };
+
             const drawGraphs = () => {
                 if (!forceCanvas.current || !stimCanvas.current) return;
                 const ctxF = forceCanvas.current.getContext('2d');
                 const ctxS = stimCanvas.current.getContext('2d');
                 
-                ctxF.clearRect(0, 0, sim.canvasWidth, 180);
-                ctxS.clearRect(0, 0, sim.canvasWidth, 100);
+                ctxF.clearRect(0, 0, sim.canvasWidth, 140);
+                ctxS.clearRect(0, 0, sim.canvasWidth, 80);
 
                 const vOffset = isRecording ? Math.max(0, sim.timeMs - (sim.canvasWidth * sim.msPerPixel)) : sim.viewOffset;
 
-                // Force Axis/Grid
+                // Force Axis/Grid (Yükseklik 140px)
                 ctxF.beginPath(); ctxF.strokeStyle = 'rgba(0,0,0,0.05)'; ctxF.lineWidth = 1;
                 for(let i=0; i<=40; i+=10) {
-                    let y = 170 - (i/40) * 160;
+                    let y = 130 - (i/40) * 120; // 10px padding alt ve üst
                     ctxF.moveTo(0, y); ctxF.lineTo(sim.canvasWidth, y);
                     if(i>0) { ctxF.fillStyle = '#9ca3af'; ctxF.font = '10px Arial'; ctxF.fillText(i, 14, y+3); }
                 }
@@ -549,16 +560,16 @@
                 for (let i = startIndex; i < endIndex; i++) {
                     const d = sim.forceData[i];
                     const x = (d.time - vOffset) / sim.msPerPixel;
-                    const y = 170 - (Math.min(40, d.force) / 40) * 160;
+                    const y = 130 - (Math.min(40, d.force) / 40) * 120;
                     if (firstPoint) { ctxF.moveTo(x, y); firstPoint = false; } else ctxF.lineTo(x, y);
                 }
                 ctxF.stroke();
 
-                // Stimulus Axis
+                // Stimulus Axis (Yükseklik 80px, Baseline 60px)
                 ctxS.strokeStyle = 'rgba(0,0,0,0.1)'; ctxS.beginPath();
-                ctxS.moveTo(0, 80); ctxS.lineTo(sim.canvasWidth, 80);
+                ctxS.moveTo(0, 60); ctxS.lineTo(sim.canvasWidth, 60);
                 for(let i=5; i<=15; i+=5) {
-                    let y = 80 - (i/15) * 70;
+                    let y = 60 - (i/15) * 50;
                     ctxS.moveTo(0, y); ctxS.lineTo(sim.canvasWidth, y);
                     ctxS.fillStyle = '#9ca3af'; ctxS.font = '10px Arial'; ctxS.fillText(i, 14, y+3);
                 }
@@ -568,9 +579,9 @@
                 for (let ev of sim.stimEvents) {
                     if (ev.time >= vOffset && ev.time <= vOffset + sim.canvasWidth * sim.msPerPixel) {
                         const x = (ev.time - vOffset) / sim.msPerPixel;
-                        const h = (ev.voltage / 15) * 70;
+                        const h = (ev.voltage / 15) * 50;
                         ctxS.beginPath(); ctxS.strokeStyle = '#ef4444'; ctxS.lineWidth = 2;
-                        ctxS.moveTo(x, 80); ctxS.lineTo(x, 80 - h); ctxS.stroke();
+                        ctxS.moveTo(x, 60); ctxS.lineTo(x, 60 - h); ctxS.stroke();
                     }
                 }
                 
@@ -579,8 +590,8 @@
                 for(let t = Math.floor(vOffset/1000)*1000; t <= vOffset + sim.canvasWidth * sim.msPerPixel; t+=1000) {
                     if(t < vOffset) continue;
                     let x = (t - vOffset) / sim.msPerPixel;
-                    ctxS.fillText((t/1000).toFixed(1) + "s", x, 95);
-                    ctxS.beginPath(); ctxS.moveTo(x, 80); ctxS.lineTo(x, 85); ctxS.strokeStyle = '#64748b'; ctxS.lineWidth=1; ctxS.stroke();
+                    ctxS.fillText((t/1000).toFixed(1) + "s", x, 75);
+                    ctxS.beginPath(); ctxS.moveTo(x, 60); ctxS.lineTo(x, 65); ctxS.strokeStyle = '#64748b'; ctxS.lineWidth=1; ctxS.stroke();
                 }
                 ctxS.textAlign = 'left';
             };
@@ -589,14 +600,7 @@
             const handleRecordToggle = () => {
                 if (!isRecording) {
                     sim.lastFrameTime = performance.now();
-                    sim.selectionActive = false;
-                    setSelectionEnabled(false);
-                    setTblFreq('-'); setTblDur('-');
-                    sim.selVoltVal = '-'; sim.selAmpVal = '-';
-                    if (overlayCanvas.current) {
-                        const ctx = overlayCanvas.current.getContext('2d');
-                        ctx.clearRect(0,0, sim.canvasWidth, 280);
-                    }
+                    clearSelection();
                 } else {
                     if (autoStimulating) setAutoStimulating(false);
                     updateScrollbar();
@@ -682,23 +686,24 @@
                 
                 sim.selVoltVal = stimCount > 0 ? `${lastV.toFixed(1)} V` : '-';
                 setTblFreq(stimCount > 1 && dur > 0 ? `${(stimCount / (dur/1000)).toFixed(1)} Hz` : (stimCount===1 ? 'Tek' : '-'));
-                sim.selAmpVal = maxF > 0.5 ? (maxF - Math.max(0, minF)).toFixed(1) : '-';
+                // Max değeri baz alan genlik
+                sim.selAmpVal = maxF > 0.5 ? maxF.toFixed(1) : '-';
                 setTblDur(dur.toFixed(0));
             };
 
             const drawOverlay = () => {
                 if(!overlayCanvas.current) return;
                 const ctx = overlayCanvas.current.getContext('2d');
-                ctx.clearRect(0,0, sim.canvasWidth, 280);
+                ctx.clearRect(0,0, sim.canvasWidth, 220);
                 if (isSelecting || sim.selectionActive) {
                     const x1 = Math.min(sim.selStartPixel, sim.selEndPixel);
                     const w = Math.abs(sim.selEndPixel - sim.selStartPixel);
                     
                     // Box Fill & Stroke
                     ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
-                    ctx.fillRect(x1, 0, w, 280);
+                    ctx.fillRect(x1, 0, w, 220);
                     ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)';
-                    ctx.strokeRect(x1, 0, w, 280);
+                    ctx.strokeRect(x1, 0, w, 220);
 
                     // Draw values on canvas if selection is active and wide enough
                     if (sim.selectionActive && w > 5) {
@@ -714,7 +719,7 @@
                         // Stimulus Label (Volt)
                         if (sim.selVoltVal !== '-') {
                             ctx.fillStyle = '#b91c1c'; // darker red
-                            ctx.fillText(sim.selVoltVal, x1 + w/2, 195); // Top of Stimulus Graph
+                            ctx.fillText(sim.selVoltVal, x1 + w/2, 155); // Top of Stimulus Graph
                         }
                         ctx.textAlign = 'left';
                     }
@@ -744,9 +749,7 @@
                     calcSelectionStats();
                     drawOverlay();
                 } else {
-                    const ctx = overlayCanvas.current.getContext('2d');
-                    ctx.clearRect(0,0, sim.canvasWidth, 280);
-                    setTblDur('-'); setTblFreq('-');
+                    clearSelection();
                 }
             };
 
@@ -795,13 +798,13 @@
                             <button onClick={() => setDevMode(!devMode)} className={`ml-2 px-1 md:px-2 py-1 text-[10px] md:text-xs font-bold rounded shrink-0 ${devMode ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-700'}`}>DevMode</button>
                         </div>
 
-                        <div className="relative w-full h-[280px]" style={{backgroundImage: 'linear-gradient(#f0f0f0 1px, transparent 1px), linear-gradient(90deg, #f0f0f0 1px, transparent 1px)', backgroundSize: '20px 20px'}}>
+                        <div className="relative w-full h-[220px]" style={{backgroundImage: 'linear-gradient(#f0f0f0 1px, transparent 1px), linear-gradient(90deg, #f0f0f0 1px, transparent 1px)', backgroundSize: '20px 20px'}}>
                             <div className="absolute left-0 top-0 bottom-0 w-12 bg-white/90 border-r border-slate-300 z-10 flex flex-col pointer-events-none">
-                                <div className="h-[180px] flex items-center justify-center -rotate-90 text-[10px] md:text-xs font-bold text-slate-600">Kuvvet (g)</div>
-                                <div className="h-[100px] flex items-center justify-center -rotate-90 text-[10px] md:text-xs font-bold text-slate-600">Uyarı (V)</div>
+                                <div className="h-[140px] flex items-center justify-center -rotate-90 text-[10px] md:text-xs font-bold text-slate-600">Kuvvet (g)</div>
+                                <div className="h-[80px] flex items-center justify-center -rotate-90 text-[10px] md:text-xs font-bold text-slate-600">Uyarı (V)</div>
                             </div>
-                            <canvas ref={forceCanvas} className="absolute top-0 left-0 w-full h-[180px] border-b border-gray-300"></canvas>
-                            <canvas ref={stimCanvas} className="absolute top-[180px] left-0 w-full h-[100px]"></canvas>
+                            <canvas ref={forceCanvas} className="absolute top-0 left-0 w-full h-[140px] border-b border-gray-300"></canvas>
+                            <canvas ref={stimCanvas} className="absolute top-[140px] left-0 w-full h-[80px]"></canvas>
                             <canvas ref={overlayCanvas} 
                                     className={`absolute top-0 left-0 w-full h-full z-20 ${selectionEnabled && !isRecording ? 'cursor-crosshair' : 'pointer-events-none'}`}
                                     onPointerDown={handleOverlayDown} onPointerMove={handleOverlayMove} onPointerUp={handleOverlayUp} onPointerLeave={handleOverlayUp}></canvas>
@@ -809,7 +812,11 @@
                         
                         <div className="px-12 py-1 bg-slate-100 border-t border-slate-300">
                             <input type="range" ref={scrollRef} min="0" max="100" defaultValue="100" disabled={isRecording} className={`time-scroll ${isRecording ? 'opacity-50' : ''}`}
-                                   onChange={(e) => { sim.viewOffset = parseFloat(e.target.value); drawGraphs(); if(sim.selectionActive) drawOverlay(); }} />
+                                   onChange={(e) => { 
+                                       sim.viewOffset = parseFloat(e.target.value); 
+                                       if(sim.selectionActive || isSelecting) clearSelection();
+                                       drawGraphs(); 
+                                   }} />
                         </div>
                     </div>
 
@@ -870,7 +877,7 @@
                             {connection === 'none' && (
                                 <div className="mb-2 bg-white p-2 rounded shadow-sm flex flex-col items-center border border-dashed border-slate-400 shrink-0">
                                     <span className="text-[10px] md:text-xs text-slate-500 mb-1 font-semibold">Sürükleyip Bırakın</span>
-                                    <div className="w-12 h-12 md:w-16 md:h-16 cursor-grab active:cursor-grabbing hover:scale-105 transition-transform" onPointerDown={handlePointerDown}>
+                                    <div className="w-12 h-12 md:w-16 md:h-16 cursor-grab active:cursor-grabbing hover:scale-105 transition-transform touch-none" onPointerDown={handlePointerDown}>
                                         <img src="stimulator.png" alt="Tool" className="w-full h-full object-contain pointer-events-none" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='flex'; }}/>
                                         <div style={{display:'none'}} className="w-full h-full bg-blue-500 text-white rounded items-center justify-center text-[10px] font-bold text-center">Stim<br/>Araç</div>
                                     </div>
