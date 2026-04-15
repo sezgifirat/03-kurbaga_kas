@@ -1,2 +1,2 @@
-# 03-kurbaga_kas_01
+# 03-kurbaga_kas
 Kurbağa kas deneyi hazırlığı
