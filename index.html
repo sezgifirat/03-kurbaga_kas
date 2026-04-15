@@ -2,221 +2,442 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
+    <!-- Derleme ortamını yenilemek için eklendi -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kurbağa Kası Deney Kurulumu</title>
+    <title>Kurbağa Kas Simülasyonu - Fizyo Lab</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Genel Reset ve Responsive Yapı */
-        * { box-sizing: border-box; }
-        body, html { 
-            margin: 0; padding: 0; width: 100%; height: 100%; 
-            display: flex; flex-direction: column; 
-            background-color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            overflow: hidden; /* Kaydırmayı engelle */
+        body { touch-action: none; overflow: hidden; background-color: #f3f4f6; font-family: sans-serif; }
+        .head-bounce { animation: bounce 2s infinite ease-in-out; }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-10px) rotate(5deg); }
         }
+        .tool-draggable { touch-action: none; cursor: grab; }
+        .tool-draggable:active { cursor: grabbing; }
         
-        #app-container { 
-            flex: 1; display: flex; flex-direction: column; position: relative; 
-            max-width: 800px; margin: 0 auto; width: 100%; height: 100%;
+        .toast-enter { animation: fadein 0.5s; }
+        @keyframes fadein {
+            from { top: 0; opacity: 0; }
+            to { top: 30px; opacity: 1; }
         }
-
-        /* Üst Bilgi / Yönerge Kutusu */
-        #instruction-container { padding: 15px; text-align: center; }
-        #instruction-box { 
-            background-color: #4da6ff; color: white; padding: 15px 20px; 
-            border-radius: 12px; font-size: 1.2rem; font-weight: bold; 
-            min-height: 80px; display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-        }
-
-        /* Ana Sahne (Kurbağa Görseli) */
-        #main-stage { 
-            flex: 1; display: flex; justify-content: center; align-items: center; 
-            position: relative; padding: 20px; cursor: pointer;
-        }
-        #frog-image { 
-            max-width: 95%; max-height: 45vh; object-fit: contain; 
-            transition: transform 0.2s ease; 
-        }
-        
-        /* Yanlış alet seçildiğinde titreme efekti */
-        .shake { animation: shake 0.3s; }
-        @keyframes shake {
-            0% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            50% { transform: translateX(10px); }
-            75% { transform: translateX(-10px); }
-            100% { transform: translateX(0); }
-        }
-
-        /* Alt Araç Çubuğu */
-        #toolbar { 
-            height: 15vh; min-height: 100px; display: flex; 
-            justify-content: space-evenly; align-items: center; 
-            padding: 10px; background: transparent; 
-        }
-        .tool { 
-            height: 80%; max-width: 15%; object-fit: contain; cursor: pointer; 
-            transition: transform 0.2s, filter 0.2s; 
-            padding: 5px; border-radius: 8px; 
-        }
-        .tool:hover { transform: scale(1.1); }
-        .tool.selected { 
-            transform: scale(1.15); 
-            background-color: rgba(77, 166, 255, 0.2); 
-            box-shadow: 0 0 10px rgba(77, 166, 255, 0.5); 
-        }
-
-        /* SFO Logosu */
-        #logo { 
-            position: absolute; bottom: 15vh; right: 15px; 
-            height: 60px; pointer-events: none; opacity: 0.8;
-        }
-
-        /* Bitiş Ekranı (Dinamik olarak gösterilecek) */
-        #start-button {
-            display: none; background-color: #d33c2e; color: white; 
-            border: none; padding: 15px 40px; font-size: 1.3rem; 
-            border-radius: 8px; cursor: pointer; font-weight: bold; 
-            margin-top: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        #start-button:hover { background-color: #b73226; }
     </style>
 </head>
 <body>
+    <div id="root"></div>
 
-<div id="app-container">
-    <div id="instruction-container">
-        <div id="instruction-box">Yükleniyor...</div>
-    </div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-    <div id="main-stage" onclick="onFrogClick()">
-        <img id="frog-image" src="" alt="Kurbağa">
-        <button id="start-button" onclick="startExperiment()">DENEYE BAŞLA</button>
-    </div>
+        // --- VERİ YAPILARI VE SABİTLER ---
+        const STEPS = [
+            { id: 1, image: '01frog.png', instruction: 'Kurbağanın bacağındaki deriyi soymak için önce penset ile tut (hedef 1), sonra makas ile kes (hedef 2\'den 3\'e sürükle).' },
+            { id: 2, image: '02bacak_soy.png', instruction: 'Siyatik siniri izole et. Portegü (sol üst) ve penset (sağ alt) ile kasları zıt yönde ayır.' },
+            { id: 3, image: '03siyatik.png', instruction: 'Araç kutusundan penseti al, kurutma kağıdına yaklaştırıp al ve siyatik sinirin altına koy.' },
+            { id: 4, image: '04siyatikizole.png', instruction: 'İpi al ve Aşil tendonunu bağla.' },
+            { id: 5, image: '05knot_asil.png', instruction: 'Makası al ve Aşil tendonunu kes.' },
+            { id: 6, image: '06cutandtie.png', instruction: 'Ataç aracı ile kesilmiş aşil tendonunu tut ve force transducer kancasına sürükleyip as.' },
+            { id: 7, image: '07final.png', instruction: 'Tebrikler! Deney için hazırsınız.' }
+        ];
 
-    <img id="logo" src="sfo.png" alt="SFO Logo">
+        const TOOLS = [
+            { id: 'portegu', src: 'portegu.png', name: 'Portegü' },
+            { id: 'makas', src: 'makas.png', name: 'Makas' },
+            { id: 'penset', src: 'penset.png', name: 'Penset' },
+            { id: 'kagit', src: 'kurutmakagidi.png', name: 'Kurutma Kağıdı' },
+            { id: 'ip', src: 'ip.png', name: 'İp' },
+            { id: 'atac', src: 'pense2.png', name: 'Ataç' } 
+        ];
 
-    <div id="toolbar">
-        <img src="portegu.png" class="tool" id="portegu" onclick="selectTool('portegu')" alt="Portegü">
-        <img src="makas.png" class="tool" id="makas" onclick="selectTool('makas')" alt="Makas">
-        <img src="penset.png" class="tool" id="penset" onclick="selectTool('penset')" alt="Penset">
-        <img src="kurutmakagidi.png" class="tool" id="kurutmakagidi" onclick="selectTool('kurutmakagidi')" alt="Kurutma Kağıdı">
-        <img src="ip.png" class="tool" id="ip" onclick="selectTool('ip')" alt="İp">
-        <img src="forcetransducer.png" class="tool" id="forcetransducer" onclick="selectTool('forcetransducer')" alt="Force Transducer">
-    </div>
-</div>
+        // --- ANA BİLEŞEN ---
+        const App = () => {
+            const [screen, setScreen] = useState('menu'); 
+            const [stepIndex, setStepIndex] = useState(0);
+            
+            const [devMode, setDevMode] = useState(false);
+            const [lastCoord, setLastCoord] = useState({ x: 0, y: 0 });
 
-<script>
-    // Simülasyon Adımları ve Mantığı
-    const steps = [
-        {
-            instruction: "Kurbağanın Gastrocnemius kasını izole etmek için sağ bacağındaki deriyi soy.",
-            image: "spinalfrog.png",
-            validTools: ["penset", "portegu"]
-        },
-        {
-            instruction: "Siyatik siniri izole et.",
-            image: "bacak_soy.png",
-            validTools: ["penset", "portegu"]
-        },
-        {
-            instruction: "Kurutma kağıdını siyatik sinirin altına koy.",
-            image: "siyatikizole.png",
-            validTools: ["kurutmakagidi"]
-        },
-        {
-            instruction: "Aşil tendonunu bağla",
-            image: "siyatik.png", 
-            validTools: ["ip"]
-        },
-        {
-            instruction: "Aşil tendonunu kes",
-            image: "knot_asil.png",
-            validTools: ["makas"]
-        },
-        {
-            instruction: "Aşil tendonunu force transducer'e bağla",
-            image: "cut_asil.png",
-            validTools: ["forcetransducer"]
-        },
-        {
-            instruction: "DENEY DÜZENEĞİ HAZIRLANDI",
-            image: "final.png",
-            validTools: [] // Son aşama
-        }
-    ];
+            const [activeTool, setActiveTool] = useState(null);
+            const [toolPos, setToolPos] = useState({ x: 0, y: 0 });
+            const [toolRotation, setToolRotation] = useState(0);
+            
+            // Simülasyon Durum Değişkenleri
+            const [attachedItem, setAttachedItem] = useState(null); 
+            const [placedTools, setPlacedTools] = useState([]); 
+            const [dragPath, setDragPath] = useState(null); 
+            const [toastMsg, setToastMsg] = useState('');
 
-    let currentStep = 0;
-    let selectedTool = null;
+            const containerRef = useRef(null);
+            const currentStep = STEPS[stepIndex];
 
-    const instructionBox = document.getElementById('instruction-box');
-    const frogImage = document.getElementById('frog-image');
-    const toolbarTools = document.querySelectorAll('.tool');
-    const startButton = document.getElementById('start-button');
-    const toolbar = document.getElementById('toolbar');
+            // --- YARDIMCI FONKSİYONLAR ---
+            const showToast = (msg) => {
+                setToastMsg(msg);
+                setTimeout(() => setToastMsg(''), 3000);
+            };
 
-    // Başlangıç Durumunu Yükle
-    function updateUI() {
-        const stepData = steps[currentStep];
-        instructionBox.innerText = stepData.instruction;
-        frogImage.src = stepData.image;
+            const advanceStep = () => {
+                if (stepIndex < STEPS.length - 1) {
+                    setStepIndex(prev => prev + 1);
+                    setPlacedTools([]);
+                    setAttachedItem(null);
+                    setDragPath(null);
+                    setActiveTool(null);
+                    showToast("Harika! Görev tamamlandı.");
+                }
+            };
 
-        // Son aşamaya gelindiyse butonları ve araçları ayarla
-        if (currentStep === steps.length - 1) {
-            frogImage.style.display = "none"; // Son ekranda sadece buton varsa gizle, görsel kalacaksa sil
-            startButton.style.display = "block";
-            toolbar.style.opacity = "0.3";
-            toolbar.style.pointerEvents = "none"; // Araç çubuğunu devre dışı bırak
-        }
-    }
+            const checkDistance = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
 
-    // Alet Seçimi
-    function selectTool(toolId) {
-        if(currentStep === steps.length - 1) return; // Deney bittiyse seçim yapma
-        
-        selectedTool = toolId;
-        
-        // Seçili efekti uygula
-        toolbarTools.forEach(tool => tool.classList.remove('selected'));
-        document.getElementById(toolId).classList.add('selected');
-    }
+            // --- DEV MODE HEDEF NOKTALARI ---
+            const getTargets = () => {
+                if (stepIndex === 0) return [{x:50,y:70, name:'1:Penset Tut'}, {x:52,y:75, name:'2:Makas Başla'}, {x:46,y:71, name:'3:Makas Bitir'}];
+                if (stepIndex === 1) return [{x:50,y:69, name:'Portegü'}, {x:55,y:72, name:'Penset'}];
+                if (stepIndex === 2) return [{x:52,y:70, name:'Kurutma Kağıdı'}];
+                if (stepIndex === 3) return [{x:74,y:67, name:'Aşil Bağla'}];
+                if (stepIndex === 4) return [{x:74,y:67, name:'Aşil Kes'}];
+                if (stepIndex === 5) return [{x:73,y:59, name:'Ataç (Başlangıç)'}, {x:60,y:30, name:'Ataç (Kanca)'}];
+                return [];
+            };
 
-    // Kurbağaya / Ekrana Tıklama (İşlemi Uygulama)
-    function onFrogClick() {
-        if (currentStep === steps.length - 1) return;
+            // --- SÜRÜKLE BIRAK ETKİLEŞİMLERİ ---
+            const handlePointerDown = (e, tool) => {
+                if (devMode && tool.id !== 'atac_placed') return;
+                
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                
+                setActiveTool(tool);
+                setToolPos({ x: clientX, y: clientY });
 
-        if (!selectedTool) {
-            // Alet seçilmeden tıklanırsa
-            return; 
-        }
+                // Özel rotasyon atamaları
+                if (tool.id === 'portegu' && stepIndex === 1) setToolRotation(135);
+                else if (tool.id === 'penset' && stepIndex === 1) setToolRotation(-30);
+                else if (tool.id === 'penset' && stepIndex === 2) setToolRotation(160);
+                else setToolRotation(0);
+            };
 
-        const stepData = steps[currentStep];
-        
-        // Seçilen alet bu aşama için doğru mu?
-        if (stepData.validTools.includes(selectedTool)) {
-            // Doğru işlem
-            currentStep++;
-            selectedTool = null;
-            toolbarTools.forEach(tool => tool.classList.remove('selected'));
-            updateUI();
-        } else {
-            // Yanlış işlem - Hata animasyonu tetikle
-            frogImage.classList.remove('shake');
-            void frogImage.offsetWidth; // Animasyonu sıfırla
-            frogImage.classList.add('shake');
-        }
-    }
+            const handlePointerMove = (e) => {
+                if (!activeTool || devMode) return;
+                const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+                const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+                setToolPos({ x: clientX, y: clientY });
 
-    // Deneye Başla Butonu
-    function startExperiment() {
-        alert("Simülasyon tamamlandı. Deney ekranına geçiş yapılıyor...");
-        // Burada bir sonraki ekrana (direct/indirect kasılma vb.) yönlendirme yapabilirsin.
-    }
+                if (containerRef.current) {
+                    const rect = containerRef.current.getBoundingClientRect();
+                    const dropX = ((clientX - rect.left) / rect.width) * 100;
+                    const dropY = ((clientY - rect.top) / rect.height) * 100;
 
-    // Sayfa yüklendiğinde başlat
-    window.onload = updateUI;
-</script>
+                    // ADIM 1: Makas Kesme Animasyonu (Sürükleme Tespiti)
+                    if (stepIndex === 0 && activeTool.id === 'makas' && placedTools.find(t => t.id === 'penset')) {
+                        if (checkDistance(dropX, dropY, 52, 75) < 8) {
+                            if (dragPath !== 'cutting') {
+                                setDragPath('cutting');
+                                showToast("Kesmeye başlandı, yukarı sürükle!");
+                            }
+                        }
+                        if (dragPath === 'cutting' && checkDistance(dropX, dropY, 46, 71) < 8) {
+                            advanceStep();
+                        }
+                    }
 
+                    // ADIM 3: Penset ile Kurutma Kağıdını Alma (Alet çantasından geçerken)
+                    if (stepIndex === 2 && activeTool.id === 'penset' && !attachedItem) {
+                        // Eğer alet ekranın altına (araç kutusuna) yaklaşırsa
+                        if (clientY > window.innerHeight - 150) {
+                            setAttachedItem('kagit');
+                            showToast("Kurutma kağıdı alındı!");
+                        }
+                    }
+                }
+            };
+
+            const handlePointerUp = (e) => {
+                if (!activeTool || devMode) return;
+                
+                const clientX = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
+                const clientY = e.clientY || (e.changedTouches && e.changedTouches[0].clientY);
+
+                const rect = containerRef.current.getBoundingClientRect();
+                const dropX = ((clientX - rect.left) / rect.width) * 100;
+                const dropY = ((clientY - rect.top) / rect.height) * 100;
+
+                let toolId = activeTool.id;
+
+                // --- HEDEF KONTROLLERİ ---
+                const tolerance = 10;
+
+                if (stepIndex === 0) {
+                    if (toolId === 'penset' && !placedTools.find(t => t.id === 'penset')) {
+                        if (checkDistance(dropX, dropY, 50, 70) < tolerance) {
+                            setPlacedTools([...placedTools, { id: 'penset', src: 'penset.png', x: 50, y: 70, rot: 0 }]);
+                            showToast("Penset yerleştirildi. Şimdi makas ile kes (2'den 3'e sürükle).");
+                        } else showToast("Penset yanlış yerde.");
+                    }
+                } 
+                else if (stepIndex === 1) {
+                    let newPlaced = [...placedTools];
+                    if (toolId === 'portegu' && !placedTools.find(t => t.id === 'portegu')) {
+                        if (checkDistance(dropX, dropY, 50, 69) < tolerance) {
+                            newPlaced.push({ id: 'portegu', src: 'portegu.png', x: 50, y: 69, rot: 135 });
+                            showToast("Portegü yerleştirildi.");
+                        }
+                    }
+                    if (toolId === 'penset' && !placedTools.find(t => t.id === 'penset')) {
+                        if (checkDistance(dropX, dropY, 55, 72) < tolerance) {
+                            newPlaced.push({ id: 'penset', src: 'penset.png', x: 55, y: 72, rot: -30 });
+                            showToast("Penset yerleştirildi.");
+                        }
+                    }
+                    setPlacedTools(newPlaced);
+                    if (newPlaced.length === 2) {
+                        setTimeout(advanceStep, 600);
+                    }
+                }
+                else if (stepIndex === 2) {
+                    if (toolId === 'penset' && attachedItem === 'kagit') {
+                        if (checkDistance(dropX, dropY, 52, 70) < tolerance) advanceStep();
+                        else showToast("Siyatik sinirin altına bırakmalısın.");
+                    } else if (toolId === 'penset') {
+                        showToast("Önce araç kutusundan kurutma kağıdını almalısın!");
+                    }
+                }
+                else if (stepIndex === 3) {
+                    if (toolId === 'ip' && checkDistance(dropX, dropY, 74, 67) < tolerance) advanceStep();
+                }
+                else if (stepIndex === 4) {
+                    if (toolId === 'makas' && checkDistance(dropX, dropY, 74, 67) < tolerance) advanceStep();
+                }
+                else if (stepIndex === 5) {
+                    if (toolId === 'atac' && !placedTools.find(t => t.id === 'atac_placed')) {
+                        if (checkDistance(dropX, dropY, 73, 59) < tolerance) {
+                            setPlacedTools([{ id: 'atac_placed', src: 'pense2.png', x: 73, y: 59, rot: 0 }]);
+                            showToast("Ataç takıldı, şimdi kancaya as!");
+                        }
+                    } else if (toolId === 'atac_placed') {
+                        if (checkDistance(dropX, dropY, 60, 30) < 15) {
+                            advanceStep();
+                        } else {
+                            // Başarısız olursa eski yerine dönsün
+                            setPlacedTools([{ id: 'atac_placed', src: 'pense2.png', x: 73, y: 59, rot: 0 }]);
+                        }
+                    }
+                }
+
+                setActiveTool(null);
+                setToolRotation(0);
+            };
+
+            const handleImageClick = (e) => {
+                if (!devMode) return;
+                const rect = e.target.getBoundingClientRect();
+                const x = e.clientX || (e.touches && e.touches[0].clientX);
+                const y = e.clientY || (e.touches && e.touches[0].clientY);
+                
+                const percentX = ((x - rect.left) / rect.width) * 100;
+                const percentY = ((y - rect.top) / rect.height) * 100;
+                
+                setLastCoord({ x: percentX.toFixed(2), y: percentY.toFixed(2) });
+            };
+
+            const nextStep = () => {
+                if (stepIndex < STEPS.length - 1) advanceStep();
+            };
+
+
+            if (screen === 'menu') {
+                return (
+                    <div className="flex flex-col items-center justify-center w-full h-screen bg-blue-50 p-4">
+                        <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md text-center border-t-4 border-blue-500 mb-8">
+                            <div className="relative w-32 h-32 mx-auto mb-4">
+                                <div className="w-full h-full bg-blue-200 rounded-full flex items-center justify-center head-bounce shadow-inner overflow-hidden border-4 border-white">
+                                   <span className="text-4xl">👨‍🏫</span>
+                                </div>
+                            </div>
+                            <h1 className="text-2xl font-bold text-gray-800 mb-2">Sezgi Hoca ile Fizyo Lab'a Hoşgeldiniz</h1>
+                            <p className="text-gray-600 text-sm">Kurbağa Kas Simülasyonu</p>
+                        </div>
+
+                        <div className="flex flex-col w-full max-w-md gap-4">
+                            <button onClick={() => window.location.href = "https://sezgifirat.github.io/00-kurbaga_hazirlik/"} 
+                                    className="bg-blue-100 text-blue-800 font-semibold py-4 px-6 rounded-xl shadow-sm active:scale-95 transition-transform text-sm text-left flex items-center border border-blue-200">
+                                <span className="text-2xl mr-3">🐸</span>
+                                Kurbağanın ön hazırlık simülasyonuna dönmek için tıklayınız...
+                            </button>
+                            <button onClick={() => setScreen('sim')} 
+                                    className="bg-blue-600 text-white font-bold py-4 px-6 rounded-xl shadow-md active:scale-95 transition-transform text-lg flex items-center justify-center">
+                                ▶️ Deneyi Hazırla
+                            </button>
+                            <button onClick={() => setScreen('part2')} 
+                                    className="bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-xl shadow-sm active:scale-95 transition-transform text-sm mt-4">
+                                Doğrudan kurbağa kasından kayıt al (Bölüm 2'ye atla)
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (screen === 'part2') {
+                return (
+                    <div className="flex flex-col items-center justify-center h-screen bg-gray-100 p-4 text-center">
+                        <h2 className="text-2xl font-bold mb-4">Bölüm 2: Deney Kaydı</h2>
+                        <p className="mb-4">Bu bölüm 2. aşamada kodlanacaktır.</p>
+                        <button onClick={() => setScreen('menu')} className="bg-blue-500 text-white px-4 py-2 rounded">Geri Dön</button>
+                    </div>
+                );
+            }
+
+            return (
+                <div 
+                    className="flex flex-col h-screen w-full relative bg-white"
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={handlePointerUp}
+                >
+                    {/* ÜST BİLGİ/GÖREV ŞERİDİ */}
+                    <div className="bg-blue-500 text-white p-4 shadow-md z-10 flex flex-col justify-center min-h-[100px] relative">
+                        <p className="text-center font-semibold text-lg md:text-xl leading-snug">
+                            {currentStep.instruction}
+                        </p>
+                    </div>
+
+                    {/* TOAST MESAJI */}
+                    {toastMsg && (
+                        <div className="absolute top-[120px] left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg z-50 text-sm font-semibold toast-enter pointer-events-none">
+                            {toastMsg}
+                        </div>
+                    )}
+
+                    {/* DEV MODE ARAÇLARI */}
+                    <div className="absolute top-[120px] right-2 z-20 flex flex-col items-end gap-2">
+                        <button onClick={() => setDevMode(!devMode)} 
+                                className={`px-3 py-1 rounded text-xs font-bold shadow ${devMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                            Dev Mode: {devMode ? 'AÇIK' : 'KAPALI'}
+                        </button>
+                        {devMode && (
+                            <div className="bg-black/80 text-white px-3 py-2 rounded text-sm font-mono whitespace-nowrap text-right">
+                                X: {lastCoord.x}% <br/> Y: {lastCoord.y}%
+                            </div>
+                        )}
+                        {devMode && stepIndex < STEPS.length - 1 && (
+                            <button onClick={nextStep} className="bg-green-500 text-white px-3 py-1 rounded text-xs mt-2">
+                                Adım Atla (Test)
+                            </button>
+                        )}
+                    </div>
+
+                    {/* ANA SİMÜLASYON ALANI (KURBAĞA) */}
+                    <div className="flex-1 relative w-full overflow-hidden flex justify-center items-center p-4" ref={containerRef}>
+                        <div className="relative w-full max-w-lg aspect-square">
+                            <img 
+                                src={currentStep.image} 
+                                alt="Kurbağa" 
+                                className="w-full h-full object-contain select-none"
+                                draggable="false"
+                                onPointerDown={handleImageClick}
+                            />
+                            
+                            {/* Dev Mode Hedef Göstergeleri */}
+                            {devMode && getTargets().map((tgt, i) => (
+                                <div key={i} className="absolute w-4 h-4 bg-red-500 rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center opacity-70 pointer-events-none"
+                                     style={{ left: `${tgt.x}%`, top: `${tgt.y}%` }}>
+                                     <span className="absolute -top-5 bg-black text-white text-[10px] px-1 rounded whitespace-nowrap">{tgt.name}</span>
+                                </div>
+                            ))}
+
+                            {/* Yerleştirilmiş Araçlar (Sabitlenenler) */}
+                            {placedTools.map((t, i) => (
+                                <div 
+                                    key={i}
+                                    className={`absolute w-16 h-16 ${t.id === 'atac_placed' ? 'cursor-grab touch-none z-30' : 'pointer-events-none z-10'}`}
+                                    style={{ 
+                                        left: `${t.x}%`, 
+                                        top: `${t.y}%`, 
+                                        transform: `translate(-50%, -50%) rotate(${t.rot}deg)` 
+                                    }}
+                                    onPointerDown={(e) => {
+                                        if (t.id === 'atac_placed') {
+                                            setActiveTool({ id: 'atac_placed', src: t.src, name: 'Ataç' });
+                                            setPlacedTools(placedTools.filter(p => p.id !== t.id)); // Drag için kaldır
+                                            handlePointerDown(e, { id: 'atac_placed', src: t.src, name: 'Ataç' });
+                                        }
+                                    }}
+                                >
+                                    <img src={t.src} alt="Placed tool" className="w-full h-full object-contain" />
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div className="absolute bottom-4 left-4 w-12 h-12 opacity-80 pointer-events-none">
+                            <img src="sfo.png" alt="SFO Logo" className="w-full h-full object-contain" onError={(e) => e.target.style.display='none'} />
+                        </div>
+                    </div>
+
+                    {/* ALET ÇANTASI (ALT PANEL) */}
+                    {stepIndex < STEPS.length - 1 && (
+                        <div className="bg-gray-100 border-t border-gray-300 p-4 h-28 flex items-center justify-around z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] relative">
+                            {TOOLS.map(tool => (
+                                <div 
+                                    key={tool.id}
+                                    className={`w-16 h-16 flex items-center justify-center p-2 rounded-xl bg-white shadow-sm border border-gray-200 tool-draggable touch-none
+                                        ${activeTool?.id === tool.id ? 'opacity-30' : ''}`}
+                                    onPointerDown={(e) => handlePointerDown(e, tool)}
+                                >
+                                    <img src={tool.src} alt={tool.name} className="max-w-full max-h-full object-contain pointer-events-none" 
+                                         onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}/>
+                                    <span style={{display: 'none'}} className="text-[10px] leading-tight font-bold text-gray-400 text-center">{tool.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* SÜRÜKLENEN AKTİF ALET */}
+                    {activeTool && (
+                        <div 
+                            className="fixed pointer-events-none z-50 w-24 h-24 flex items-center justify-center"
+                            style={{
+                                left: toolPos.x,
+                                top: toolPos.y,
+                                transform: `translate(-50%, -50%) rotate(${toolRotation}deg)`,
+                                transition: 'transform 0.1s ease-out'
+                            }}
+                        >
+                            <img src={activeTool.src} alt={activeTool.name} className="w-full h-full object-contain drop-shadow-xl" 
+                                 onError={(e) => { e.target.style.display='none'; }}/>
+                            
+                            {/* Birleşik Alet Gösterimi (Pensetin ucunda kağıt varsa) */}
+                            {attachedItem === 'kagit' && activeTool.id === 'penset' && (
+                                <img src="kurutmakagidi.png" alt="Kagıt" className="absolute top-[80%] left-[80%] w-10 h-10 object-contain drop-shadow-md transform -translate-x-1/2 -translate-y-1/2" />
+                            )}
+                        </div>
+                    )}
+                    
+                    {/* FİNAL TEBRİKLER MODALI */}
+                    {stepIndex === STEPS.length - 1 && (
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl animate-bounce">
+                                <h2 className="text-3xl mb-4">🎉</h2>
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">Tebrikler!</h3>
+                                <p className="text-gray-600 mb-6">Kurbağa deney için hazırlandı.</p>
+                                <button onClick={() => setScreen('part2')} 
+                                        className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl w-full shadow-md active:scale-95 transition-transform">
+                                    Kayda Başla
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
